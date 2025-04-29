@@ -1,0 +1,44 @@
+# See docs at: https://mystmd.org/guide/frontmatter
+version: 1
+
+project:
+  id: ac978d66-7682-4ac3-899a-8703862ef04b
+  license: CC-BY-4.0
+  title: HDF Enhancement Proposals
+  description: "HDF5 enhancement proposals in one place: open and community developed."
+  keywords:
+    - HDF5
+    - RFC
+    - convention
+    - extension
+    - enhancement
+    - standard
+  # authors: []
+  github: https://github.com/HDFGroup/heps
+  # To autogenerate a Table of Contents, run "myst init --write-toc"
+  toc:
+    - file: index.md
+    - file: proposing.md
+    - file: accepted.md
+    - file: draft.md
+    - title: Proposals
+      children:
+        - pattern: HEP*/main.md
+
+site:
+  template: book-theme
+  options:
+    folders: true
+    hide_footer_links: true
+  #   favicon: favicon.ico
+    logo: images/stackedlogo_RGB.jpeg
+    twitter: hdf5
+  nav:
+    # - title: HDF Group
+    #   url: https://www.hdfgroup.org
+    - title: Accepted Proposals
+      url: /accepted
+    - title: Draft Proposals
+      url: /draft
+    - title: New Proposal?
+      url: /proposing
