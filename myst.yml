@@ -37,8 +37,8 @@ site:
     # - title: HDF Group
     #   url: https://www.hdfgroup.org
     - title: Accepted Proposals
-      url: /accepted
+      url: /heps/accepted
     - title: Draft Proposals
-      url: /draft
+      url: /heps/draft
     - title: New Proposal?
-      url: /proposing
+      url: /heps/proposing
