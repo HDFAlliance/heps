@@ -17,7 +17,7 @@ But today, HDF stands at a crossroads.
 
 ## HDF Has Grown—But Without a Common Plan
 
-Despite its impact and widespread use, the HDF project has never had a formal governance structure. Its success has been powered by the commitment of a few organizations and individuals—primarily The HDF Group, with essential contributions from the U.S. NASA, Department of Energy, National Science Foundation, and a few industrial partners. However, this narrow funding and leadership base is not sustainable. The responsibility for such critical infrastructure must not rest on the shoulders of a few.
+Despite its impact and widespread use, the HDF project has never had a formal governance structure. Its success has been powered by the commitment of a few organizations and individuals, primarily The HDF Group, with essential contributions from the U.S. Department of Energy, NASA, the National Science Foundation, and a few industrial partners. However, this narrow funding and leadership base is not sustainable. The responsibility for such critical infrastructure must not rest on the shoulders of a few.
 
 ## Why We Must Act—Together
 
