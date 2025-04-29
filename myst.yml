@@ -5,7 +5,7 @@ project:
   id: ac978d66-7682-4ac3-899a-8703862ef04b
   license: CC-BY-4.0
   title: HDF Enhancement Proposals
-  description: "HDF5 enhancement proposals in one place: open and community developed."
+  description: "HDF enhancement proposals in one place: open and community developed."
   keywords:
     - HDF5
     - RFC
@@ -14,7 +14,7 @@ project:
     - enhancement
     - standard
   # authors: []
-  github: https://github.com/HDFGroup/heps
+  github: https://github.com/HDFAlliance/heps
   # To autogenerate a Table of Contents, run "myst init --write-toc"
   toc:
     - file: index.md
@@ -31,7 +31,7 @@ site:
     folders: true
     hide_footer_links: true
   #   favicon: favicon.ico
-    logo: images/stackedlogo_RGB.jpeg
+    logo: images/HDF_transparent.png
     twitter: hdf5
   nav:
     # - title: HDF Group
