@@ -30,7 +30,7 @@ site:
   options:
     folders: true
     hide_footer_links: true
-  #   favicon: favicon.ico
+    favicon: images/HDF-favicon-32x32.png
     logo: images/HDF_transparent.png
     twitter: hdf5
   nav:
