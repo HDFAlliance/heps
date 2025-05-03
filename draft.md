@@ -13,7 +13,7 @@ This is test page! Disregard content.
 * - Draft HEPs
   - Started
   - Notes
-* - [](./HEP002/main.md#hep002-title)
+* - [](./HEP002/index.md#hep002-title)
   - 2025-04-01
   - This is a longer note.
 

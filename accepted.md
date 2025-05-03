@@ -13,7 +13,7 @@ This is test page! Disregard content.
 * - Accepted HEPs
   - Date Accepted
   - Notes
-* - [](./HEP001/main.md#hep001-title)
+* - [](./HEP001/index.md#hep001-title)
   - 2025-09-01
   - This is a longer note.
 
