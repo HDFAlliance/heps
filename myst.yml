@@ -35,8 +35,8 @@ site:
     twitter: hdf5
   nav:
     - title: Accepted Proposals
-      url: /heps/accepted
+      url: /accepted
     - title: Draft Proposals
-      url: /heps/draft
+      url: /draft
     - title: New Proposal?
-      url: /heps/proposing
+      url: /proposing
