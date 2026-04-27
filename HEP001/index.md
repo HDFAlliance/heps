@@ -9,15 +9,15 @@ keywords:
   - tabular data
   - columnar storage
   - dataframe
-  - Parquet
-  - Anndata
-  - search index
 authors:
   - name: Aleksandar Jelenak
     affiliation: HDF Group
 funding:
   statement: This material is based upon work supported by the U.S. Department of Energy, Office of Science, Office of Fusion Energy Sciences, under Award Number​ DE-SC0024442.​
   id: DE-SC0024442
+numbering:
+  heading_2: true
+  heading_3: true
 ---
 
 % -----------------------------------------------------------------------------
@@ -37,16 +37,18 @@ funding:
 # HEP001: Column-Oriented Tabular Data in HDF5
 
 ```{attention}
-This HEP is a **work-in-progress draft**. The data model and attribute names below are intended
+This document is a **work-in-progress draft**. The data model and attribute names below are intended
 to be stable, but normative language (MUST / SHOULD / MAY) will be tightened
 during review. Comments and pull requests are welcome on the
 [HEP repository](https://github.com/HDFAlliance/heps).
 ```
 
 ```{note} Acknowledgments and disclosures
-Development of this document was supported by the U.S. Department of Energy, Office of Science, Office of Fusion Energy Sciences, under Award Number​ DE-SC0024442.
+Development of this document was supported by the U.S. Department of Energy,
+Office of Science, Office of Fusion Energy Sciences, under Award Number​ DE-SC0024442.
 
-No contractual or commercial obligations constrain the content of this document. This work is contributed to the HDF community under the
+No contractual or commercial obligations constrain the content of this document.
+This work is contributed to the HDF community under the
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.
 ```
 
@@ -70,7 +72,7 @@ The proposed convention/format does not yet have an official name. Possible cand
   Explicit, Anndata-aligned. Good if interoperability is the sell; trades brevity for clarity.
 ```
 
-## 1. Introduction
+## Introduction
 
 HDF5 has stored tabular data from its earliest days, and several distinct
 idioms have grown up around that use case. HEP001 proposes a **column-oriented
@@ -78,7 +80,7 @@ storage layout**, in the spirit of Apache Parquet, Apache Arrow, and Feather,
 that lives natively as an HDF5 group and combines cleanly with the
 multidimensional array datasets that are HDF5's traditional strength.
 
-### 1.1 A short overview of tabular data in HDF5
+### A short overview of tabular data in HDF5
 
 The first widely adopted idiom is the [HDF5 Table
 specification](https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html)
@@ -94,27 +96,27 @@ chunk shape, or compression filter requires rewriting the entire dataset.
 
 The second influential idiom is [PyTables](https://www.pytables.org), a Python
 package that has layered a rich query engine on top of HDF5. PyTables likewise
-stores a table as a single one-dimensional dataset of a compound type —
-decorated with its own `CLASS="TABLE"`, `VERSION`, `TITLE`, `FIELD_N_FILL`,
-`NROWS`, and `PYTABLES_FORMAT_VERSION` attributes — and adds a rich family of
-companion structures for indexing (Completely Sorted Indexes, or CSIs),
-in-kernel queries, and compression with Blosc. PyTables popularized the idea
-that a useful table format needs more than bytes on disk: it needs indexes,
-metadata, and conventions that let tools reason about the data.
+stores a table as a single one-dimensional dataset of a compound type decorated
+with its own `CLASS="TABLE"`, `VERSION`, `TITLE`, `FIELD_N_FILL`, `NROWS`, and
+`PYTABLES_FORMAT_VERSION` attributes. This adds a rich family of companion
+structures for indexing, in-kernel queries, and compression with Blosc. PyTables
+popularized the idea that a useful table format needs more than data bytes:
+it needs indexes, metadata, and conventions that let tools reason about the
+data.
 
-The third and most recent influence is [Anndata](https://anndata.readthedocs.io/),
-which treats a dataframe as an HDF5 **group** rather than a single
-compound dataset. Each column of the dataframe is stored as its own
-one-dimensional dataset inside that group. The group carries attributes that
-tell Anndata how to reassemble the columns into a dataframe —
-`encoding-type="dataframe"`, `encoding-version`, `column-order`
-(a UTF-8 string array giving the column order), and `_index` (the name of
-the column that supplies row labels). Anndata extends this convention with
-dedicated encodings for nullable integers, nullable booleans, categoricals,
-sparse matrices, and more. This layout is **column-oriented**, and it is the
-closest existing HDF5 practice to what modern analytical engines expect.
+The third and most recent influence is
+[Anndata](https://anndata.readthedocs.io/), which treats a table (_dataframe_)
+as an HDF5 group rather than a single compound dataset. Each column of the
+dataframe is stored as its own one-dimensional dataset inside that group. The
+group carries attributes that tell Anndata how to reassemble the columns into a
+dataframe — `encoding-type="dataframe"`, `encoding-version`, `column-order` (a
+UTF-8 string array giving the column order), and `_index` (the name of the
+column that supplies row labels). Anndata extends this convention with dedicated
+encodings for nullable integers, nullable booleans, categoricals, sparse
+matrices, and more. This layout is **column-oriented**, and it is the closest
+existing HDF5 practice to what modern analytical engines expect.
 
-### 1.2 Why columnar, and why now
+### Why columnar, and why now
 
 Row-oriented tables pack every value of every column together. That
 packing is ideal for use cases that scan whole rows (appending rows to a
@@ -145,8 +147,7 @@ file, portable self-describing metadata, hierarchical groups, and
 lossless access to every tool in the HDF5 stack.
 
 A decisive advantage of HDF5 over dedicated columnar formats is that tabular
-data does not have to live alone. An HDF5 file can — in a single self-
-describing container — hold
+data does not have to live alone. For example, an HDF5 file can hold:
 
 * a HEP001 table group with the experiment's per-event observations,
 * a multidimensional dataset of raw sensor images addressed by those events,
@@ -163,7 +164,9 @@ Columnar tools and array tools meet in the middle.
 graph TD
   F[("HDF5 File")]
   F --> R["/ (root group)"]
+  style R fill:orange
   R --> T["/events (table group, CLASS=COLUMN_TABLE)"]
+  style T fill:orange
   R --> I["/images (3-D dataset, detector cube)"]
   R --> C["/calibration (2-D dataset)"]
   T --> c1["ts (int64)"]
@@ -172,28 +175,28 @@ graph TD
   c3 -. "dereferences to slabs of" .-> I
 ```
 
-### 1.3 Scope and non-goals
+### Scope and non-goals
 
 HEP001 specifies:
 
 * the structure of a group that holds a column-oriented table,
 * the identifying attributes that let software recognize such a group,
 * how individual columns are represented as HDF5 datasets,
-* how row-label **indexes** relate columns and the table group,
-* how **search indexes** accelerate queries over column values, including a
+* how row-label indexes relate columns and the table group,
+* how search indexes accelerate queries over column values, including a
   normative chunk-min/max index and framework definitions for sorted-row,
   bitmap, and per-chunk Bloom-filter indexes.
 
-HEP001 does *not* specify:
+HEP001 *does not* specify:
 
 * a query language or execution engine,
 * a particular on-the-wire protocol for distributing tables,
 * semantic conventions for domain-specific column units (outside the
   `units` / `units_vocabulary` attribute pair, which is descriptive only),
 * how tables are committed, versioned, or synchronized — those are the
-  province of the storage layer and of other HEPs.
+  province of the storage layer and, perhaps, future HEPs.
 
-## 2. Conformance
+## Conformance
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY**
 in this document are to be interpreted as described in [RFC 2119] and
@@ -202,18 +205,23 @@ in this document are to be interpreted as described in [RFC 2119] and
 [RFC 2119]: https://datatracker.ietf.org/doc/html/rfc2119
 [RFC 8174]: https://datatracker.ietf.org/doc/html/rfc8174
 
-A file, group, or dataset is **HEP001-conformant** when it satisfies every
-MUST in the section that applies to it. A producer is HEP001-conformant
-when every table group it writes is conformant; a consumer is conformant
-when it can read any conformant table group without data loss.
+A file, group, or dataset is HEP001-conformant when it satisfies every MUST in
+the section that applies to it. A producer is HEP001-conformant when every table
+group it writes is conformant; a consumer is conformant when it can read any
+conformant table group without data loss.
 
-## 3. Terminology
+## Terminology
 
 The following terms are used throughout this specification.
 
 Table group
 : An HDF5 group that represents one column-oriented table. Identified by the
-  `CLASS` attribute (see {ref}`hep001-class`).
+`CLASS` attribute (see {ref}`hep001-class`).
+
+(hep001-dset-name)=
+Dataset name
+: The name of the HDF5 hard link that connects an HDF5 dataset with its parent
+HDF5 group.
 
 Column dataset
 : An HDF5 dataset of rank 1 that lives directly under a table group and
@@ -234,7 +242,7 @@ Row
   dataset in the same table group MUST have the same length, so the same
   `i` refers to the same logical row everywhere.
 
-## 4. Data model overview
+## Data model overview
 
 A HEP001 table is an HDF5 **group** whose direct children are the table's
 columns (and, optionally, row indexes), plus a reserved `_search_indexes`
@@ -261,16 +269,15 @@ datasets ({ref}`hep001-indexes`), and the four kinds of search index dataset
 ({ref}`hep001-search-indexes`).
 
 (hep001-table-group)=
-## 5. The table group
+## The table group
 
 (hep001-class)=
-### 5.1 Identification — the `CLASS` attribute
+### Identification — the `CLASS` attribute
 
 Every HEP001 table group MUST carry an attribute named `CLASS` with:
 
-* datatype: **fixed-length ASCII string**, 12 bytes (exactly the length of the
-  value below, including the trailing byte available for null termination),
-  null-terminated or null-padded per the HDF5 string conventions,
+* datatype: fixed-length ASCII string, 12 bytes (exactly the length of the
+  value below), null-terminated or null-padded per the HDF5 string conventions,
 * shape: scalar,
 * value: `COLUMN_TABLE`.
 
@@ -285,7 +292,7 @@ convention (HDF5 Table, PyTables, Image spec). All other string attributes
 in this spec are UTF-8 unless explicitly stated otherwise.
 ```
 
-### 5.2 The `VERSION` attribute
+### The `VERSION` attribute
 
 Every HEP001 table group MUST carry a scalar, fixed-length ASCII attribute
 named `VERSION` whose value is the HEP001 revision the table conforms to.
@@ -294,7 +301,7 @@ For this revision the value is `1.0`.
 Future revisions of HEP001 MUST either preserve backward compatibility
 with `1.0` consumers or bump the major version.
 
-### 5.3 Optional table-level attributes
+### Optional table-level attributes
 
 The table group MAY carry the following attributes.
 
@@ -343,10 +350,10 @@ four bytes). Values MUST be null-terminated or null-padded per standard
 HDF5 string conventions.
 ```
 
-### 5.4 Placement of the table group
+### Placement of the table group
 
 The table group MAY be located anywhere in an HDF5 file's hierarchy. In the
-simplest case the root group of the file **is** the table group — the file
+simplest case the root group of the file is the table group — the file
 holds one table and nothing else — and all columns live at the top level.
 Tables MAY also be nested under named groups to organize many tables, or
 sited beside multidimensional array datasets that they describe.
@@ -368,10 +375,63 @@ graph TD
   end
 ```
 
-(hep001-columns)=
-## 6. Column datasets
+(hep001-self-contained)=
+### Self-contained contents
 
-### 6.1 Required properties
+A table group is the complete representation of a single column-oriented
+table. Every HDF5 object — group, dataset, named datatype, or link —
+that is a descendant of the table group MUST exist solely in service of
+the table that group defines.
+
+For this revision of HEP001, the only objects permitted anywhere in the
+HDF5 hierarchy below a table group are:
+
+* column datasets ({ref}`hep001-columns`);
+* index datasets ({ref}`hep001-indexes`);
+* categories datasets backing categorical columns
+  ({ref}`hep001-categoricals`);
+* the reserved `_search_indexes` subgroup, the search-index datasets it
+  contains, and their accompanying values datasets
+  ({ref}`hep001-search-indexes`).
+
+Future revisions of HEP001, and future HEPs that build on it, MAY
+introduce additional kinds of group or dataset below a table group.
+Every such addition MUST exist exclusively to describe, qualify,
+accelerate, or otherwise support the table defined by the enclosing
+table group. A descendant whose semantics are independent of that table
+is not conformant.
+
+In particular, a producer MUST NOT place under a table group:
+
+* unrelated tables, including other HEP001 table groups;
+* multidimensional array datasets that are not derived from, or
+  exclusively bound to, the columns of this table;
+* user data, application state, or arbitrary metadata that is not
+  defined by this HEP or a future, registered HEP.
+
+Producers that wish to colocate such content with a table MUST do so by
+placing it as a sibling of the table group, or under an unrelated parent
+group elsewhere in the file. Object references, region references, and
+external links MAY be used to associate the table's columns with that
+external content without violating this rule.
+
+Consumers MAY treat the table group as a closed, self-describing unit:
+copying, moving, renaming, deleting, or versioning the table group is
+guaranteed to act on the entire table and on nothing else.
+
+```{note}
+This restriction applies only *below* the table group. The table group
+itself MAY live anywhere in the file, alongside arbitrary other HDF5
+content — see *Placement of the table group* above. The two rules are
+complementary: a HEP001 table travels as a self-contained subtree, but
+that subtree can be hosted next to any other HDF5 object the producer
+chooses.
+```
+
+(hep001-columns)=
+## Column datasets
+
+### Required properties
 
 Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
 
@@ -380,57 +440,50 @@ Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
 * has the same length as every other column dataset and index dataset in
   the same table group.
 
-The **name** of the HDF5 dataset is the column name. Any name acceptable as
-an HDF5 link name (UTF-8, excluding `/` and NUL) is permitted. Producers
-SHOULD avoid names that begin with an underscore, which are reserved for
-internal index and metadata datasets defined by this or future HEPs, and
-MUST NOT use the reserved name `_search_indexes`.
+The {ref}` name <hep001-dset-name>` of the HDF5 dataset is the column name. Any
+name acceptable as an HDF5 link name (UTF-8, excluding `/` and NUL) is
+permitted. Producers SHOULD avoid names that begin with an underscore, which are
+reserved for internal index and metadata datasets defined by this or future
+HEPs, and MUST NOT use the reserved name `_search_indexes`.
 
-### 6.2 Datatypes
+### Datatypes
 
-The datatype of a column dataset MAY be any HDF5 datatype the producer
-chooses: fixed- or variable-length integer, floating point, boolean,
-fixed- or variable-length string, compound, enum, array, opaque, or
-object/region reference. Consumers that encounter a datatype they cannot
-map to their in-memory model SHOULD surface the column's raw datatype
-rather than dropping it silently.
+The datatype of a column dataset MAY be any HDF5 datatype. Consumers that
+encounter a datatype they cannot map to their in-memory model SHOULD surface the
+column's raw datatype rather than dropping it silently.
 
 Two caveats apply:
 
 1. Compound datatypes at the column level are permitted, but a table group
    is not a mechanism for storing a nested row-oriented table. When a
-   compound-typed column is used, its fields SHOULD be logically atomic
-   (for example, a `(re, im)` complex number).
+   compound-typed column is used, its fields SHOULD be logically atomic.
 2. Variable-length datatypes are permitted and often desirable (e.g.
    variable-length UTF-8 strings, ragged numeric arrays). Producers SHOULD
    apply chunking and filters consistent with the datatype's storage
    characteristics.
 
-### 6.3 Chunking and filters
+### Chunking and filters
 
 Because each column is its own HDF5 dataset, each column MAY independently
 select:
 
-* chunk shape (typically `(N,)` for some chunk length `N` per column),
+* chunk shape (typically `(N,)` for `N` rows per column),
 * dataset creation properties such as fill value, allocation time,
   and track-times,
-* the filter pipeline, including shuffle, bit-shuffle, n-bit, scale-offset,
-  Deflate, Zstandard, Blosc, Blosc2, SZ, and any other registered HDF5
-  filter supported by the producer and consumers.
+* the filter pipeline.
 
 This per-column flexibility is the core motivation for HEP001 and is
 normative: producers MUST NOT require columns to share chunk shape or
 filters. Consumers MUST treat each column's storage layout independently.
 
-### 6.4 Missing values (fill values)
+### Missing values (fill values)
 
 HEP001 does not define a sidecar mask dataset for missing values. A column
-dataset's HDF5 fill value identifies rows whose value is missing. Producers
-that need to represent missing values MUST set the dataset's fill value
-explicitly via the dataset creation property list (`H5Pset_fill_value`) and
-SHOULD document the chosen fill value in the column's `description`
-attribute. Consumers MAY rely on `H5Dget_fill_value` to recover that
-sentinel.
+dataset's HDF5 fill value identifies rows whose value is missing. Producers MUST
+set the dataset's fill value explicitly via the dataset creation property list
+(`H5Pset_fill_value`) to a value outside of the column values range. Consumers
+MUST retrieve this value (`H5Dget_fill_value`) to properly identify column's
+missing values.
 
 ```{note}
 This is a conscious divergence from Anndata's nullable-integer and
@@ -439,7 +492,7 @@ HEP MAY introduce explicit masks; until then, HEP001 relies on fill
 values alone.
 ```
 
-### 6.5 Column attributes
+### Column attributes
 
 A column dataset MAY carry any of the following attributes.
 
@@ -477,21 +530,19 @@ A column dataset MAY carry any of the following attributes.
   {ref}`hep001-categoricals`).
 
 (hep001-categoricals)=
-### 6.6 Categorical columns
+### Categorical columns
 
-A **categorical** column stores integer codes that index into a separate
-**categories** dataset holding the actual values. This is the same pattern
-Anndata and Apache Arrow use.
+A categorical column stores integer codes that index into a separate categories
+dataset holding the actual values.
 
 A categorical column MUST:
 
-1. Have an integer datatype (any width, signed or unsigned). The code
-   value `-1` (or, for unsigned codes, the dataset's documented fill
-   value) denotes a missing category.
+1. Have an integer datatype (any width, signed or unsigned). The column's
+   missing value (the dataset's fill value) denotes a missing category.
 2. Carry a scalar `_categories` attribute whose value is an HDF5 object
    reference pointing to the categories dataset.
 
-The **categories dataset** MUST:
+The categories dataset MUST:
 
 1. Live directly under the same table group.
 2. Have rank 1, and any datatype appropriate to the category values
@@ -514,12 +565,12 @@ graph LR
 ```
 
 (hep001-indexes)=
-## 7. Index datasets
+## Index datasets
 
-An **index dataset** supplies row labels for one or more columns. A table
+An index dataset supplies row labels for one or more columns. A table
 group MAY carry zero or more index datasets as direct children.
 
-### 7.1 Required properties
+### Required properties
 
 An index dataset MUST:
 
@@ -536,7 +587,7 @@ that is, it MAY appear in the `column-order` attribute and also carry
 `_columns_list`. This matches Anndata, where the dataset named by
 `_index` is typically also a regular column.
 
-### 7.2 Linking columns to their indexes
+### Linking columns to their indexes
 
 Each column dataset that wishes to be labeled by an index MUST carry an
 `_indexes` attribute — a 1-D array of object references pointing to its
@@ -555,7 +606,7 @@ graph LR
   C2 -->|"_indexes"| IX
 ```
 
-### 7.3 Typical uses
+### Typical uses
 
 * **Row labels.** A string index dataset supplies user-meaningful names
   (e.g. sample IDs) for each row.
@@ -565,14 +616,14 @@ graph LR
   the column's `_indexes` attribute expresses their precedence.
 
 (hep001-search-indexes)=
-## 8. Search indexes
+## Search indexes
 
-**Search indexes** accelerate queries over column values. They do not
-change the logical table; they are derivative, recomputable data. A
-conformant consumer MAY ignore any or all search indexes and still
-return correct answers, only more slowly.
+Search indexes accelerate queries over column values. They do not change the
+logical table; they are derivative, recomputable data. A conformant consumer MAY
+ignore any or all search indexes and still return correct answers, only more
+slowly.
 
-### 8.1 The `_search_indexes` group
+### The `_search_indexes` group
 
 A table group MAY contain a direct child group named `_search_indexes`.
 When present, it MUST hold every search-index dataset for the table, and
@@ -584,7 +635,7 @@ underscore separating the source column name from the index kind (for
 example, `ts__chunk_minmax`, `energy__sorted_rows`,
 `label__bitmap`, `ts__chunk_bloom`).
 
-### 8.2 Bidirectional linking
+### Bidirectional linking
 
 Each search-index dataset MUST carry an attribute `_columns_list` — a 1-D
 array of HDF5 object references to every column dataset it accelerates.
@@ -593,32 +644,34 @@ reference it from its own `_search_indexes` attribute. The two sides MUST
 stay consistent in the same sense as for index datasets
 ({ref}`hep001-indexes`).
 
-### 8.3 Common per-index attributes
+### Common per-index attributes
 
 Every search-index dataset MUST carry a scalar fixed-length ASCII
 attribute `KIND` whose value is one of the strings defined below:
 
-| `KIND` value         | Purpose                                     | Defined in    |
-|----------------------|---------------------------------------------|---------------|
-| `CHUNK_MINMAX`       | Per-chunk min and max of a numeric column   | §8.4          |
-| `SORTED_ROWS`        | Row-position permutation of a column        | §8.5          |
-| `BITMAP`             | Per-value bitmap of a low-cardinality col.  | §8.6          |
-| `CHUNK_BLOOM`        | Per-chunk Bloom filter of a column          | §8.7          |
+| `KIND` value         | Purpose                                     | Defined in                   |
+|----------------------|---------------------------------------------|------------------------------|
+| `CHUNK_MINMAX`       | Per-chunk min and max of a numeric column   | {numref}`§%s <chunk-minmax>` |
+| `SORTED_ROWS`        | Row-position permutation of a column        | {numref}`§%s <sorted-row>`   |
+| `BITMAP`             | Per-value bitmap of a low-cardinality col.  | {numref}`§%s <bitmap>`       |
+| `CHUNK_BLOOM`        | Per-chunk Bloom filter of a column          | {numref}`§%s <bloom>`        |
 
 Future HEPs MAY register additional `KIND` values. Consumers MUST treat
 unknown `KIND` values as "ignore this search index".
 
-### 8.4 Chunk min/max search index (`KIND = CHUNK_MINMAX`)
+
+(chunk-minmax)=
+### Chunk min/max search index (`KIND = CHUNK_MINMAX`)
 
 A chunk min/max index accelerates range and equality predicates over a
 numeric column by letting the engine skip chunks whose value range does
 not overlap the predicate.
 
-**Shape.** The index dataset is 1-D with length equal to the number of
-chunks in the source column dataset (`ceil(column_length / chunk_length)`
-for a contiguously-chunked column).
+**Shape:** The index dataset is 1-D with length equal to the number of chunks in
+the source column dataset (`ceil(column_length / chunk_length)` for a chunked
+column). A contiguous column (dataset) is treated as having one chunk.
 
-**Datatype.** An HDF5 compound datatype with the following fields, in
+**Datatype:** An HDF5 compound datatype with the following fields, in
 declaration order:
 
 * `min` — same datatype as the source column's element type.
@@ -631,27 +684,27 @@ declaration order:
   last chunk MAY be partially full, in which case `n` is strictly less
   than the column's chunk length.
 
-**Semantics.** For floating-point columns, `min` and `max` MUST ignore
+**Semantics:** For floating-point columns, `min` and `max` MUST ignore
 NaN values — if every value in the chunk is NaN, `min` and `max` MUST be
 set to the column's fill value and `nan_count` MUST equal `n`. For
 integer and other orderable types, `min` and `max` are the ordinary
 ordering extrema over the chunk's values, treating fill-value elements
 as missing (and excluded from the ordering) when `fill_count > 0`.
 
-**Applicability.** A `CHUNK_MINMAX` index MUST link to exactly one column
+**Applicability:** A `CHUNK_MINMAX` index MUST link to exactly one column
 dataset via `_columns_list`. A producer MAY build separate
 `CHUNK_MINMAX` indexes for several columns, but a single dataset MUST
 NOT cover multiple columns because chunks of different columns are
 independent.
 
-**Additional attributes on the index dataset.**
+**Additional attributes on the index dataset:**
 
 * `chunk_shape` — 1-D uint64 array. The source column's chunk shape at
   the time the index was built. (Not derivable from HDF5 metadata for
   contiguous columns; always redundant and checkable for chunked ones.)
 * `KIND` — `"CHUNK_MINMAX"` (see §8.3).
 
-**Query pattern.** To evaluate a predicate `col BETWEEN lo AND hi`:
+**Query pattern:** To evaluate a predicate `col BETWEEN lo AND hi`:
 
 ```{mermaid}
 flowchart TD
@@ -666,18 +719,20 @@ flowchart TD
   G --> C
 ```
 
-### 8.5 Sorted-row permutation index (`KIND = SORTED_ROWS`)
+
+(sorted-row)=
+### Sorted-row permutation index (`KIND = SORTED_ROWS`)
 
 A sorted-row index stores row positions in sorted order of a column's
 values, enabling binary search and range scans without reading the full
 column.
 
-**Shape.** 1-D, length equal to the column length.
+**Shape:** 1-D, length equal to the column length.
 
-**Datatype.** An unsigned integer wide enough to address every row of the
+**Datatype:** An unsigned integer wide enough to address every row of the
 source column (typically `uint64`).
 
-**Semantics.** Element `i` of the index is the row position `r` such
+**Semantics:** Element `i` of the index is the row position `r` such
 that the `i`-th smallest value of the column lives at row `r`. Ties MUST
 be broken by increasing `r`, so the permutation is total and
 deterministic. Handling of NaN and fill-value rows:
@@ -689,7 +744,7 @@ deterministic. Handling of NaN and fill-value rows:
   immediately before the NaN tail, in increasing `r` order, and the
   attribute `fill_tail_length` MUST record the count.
 
-**Additional attributes.**
+**Additional attributes:**
 
 * `KIND` — `"SORTED_ROWS"`.
 * `nan_tail_length`, `fill_tail_length` — scalar `uint64`. Both MUST be
@@ -697,54 +752,58 @@ deterministic. Handling of NaN and fill-value rows:
 * `ordered` — scalar boolean. MUST be true for `SORTED_ROWS`; reserved
   for future indexes that permit partial orderings.
 
-**Applicability.** Exactly one column via `_columns_list`.
+**Applicability:** Exactly one column via `_columns_list`.
 
-### 8.6 Bitmap index (`KIND = BITMAP`)
+
+(bitmap)=
+### Bitmap index (`KIND = BITMAP`)
 
 A bitmap index accelerates equality predicates on low-cardinality
 columns.
 
-**Shape.** 2-D of shape `(K, ceil(N / 8))`, where `K` is the number of
+**Shape:** 2-D of shape `(K, ceil(N / 8))`, where `K` is the number of
 distinct values (or categories) indexed and `N` is the column length.
 
-**Datatype.** `uint8`. Bit `r % 8` of byte `r / 8` of row `k` is set iff
+**Datatype:** `uint8`. Bit `r % 8` of byte `r / 8` of row `k` is set iff
 the column's value at row `r` equals the `k`-th indexed value.
 
-**Accompanying values dataset.** A sibling 1-D dataset named
+**Accompanying values dataset:** A sibling 1-D dataset named
 `<bitmap_name>__values`, under `_search_indexes`, holds the `K` indexed
 values in the same datatype as the source column. Its name is linked
 from the bitmap via a scalar `_values` object-reference attribute.
 
-**Additional attributes on the bitmap dataset.**
+**Additional attributes on the bitmap dataset:**
 
 * `KIND` — `"BITMAP"`.
 * `_values` — scalar HDF5 object reference to the values dataset.
 * `ordered` — scalar boolean; true iff the rows of the bitmap follow the
   ordering of the values.
 
-**Applicability.** Exactly one column via `_columns_list`.
+**Applicability:** Exactly one column via `_columns_list`.
 
-### 8.7 Per-chunk Bloom filter index (`KIND = CHUNK_BLOOM`)
+
+(bloom)=
+### Per-chunk Bloom filter index (`KIND = CHUNK_BLOOM`)
 
 A per-chunk Bloom filter accelerates equality predicates on
 high-cardinality columns by giving a fast negative answer for chunks
 that provably do not contain the queried value.
 
-**Shape.** 2-D of shape `(n_chunks, m_bytes)`, where `n_chunks` is the
+**Shape:** 2-D of shape `(n_chunks, m_bytes)`, where `n_chunks` is the
 number of chunks in the source column and `m_bytes` is the Bloom-filter
 byte length per chunk (constant across chunks).
 
-**Datatype.** `uint8`. Each row is the packed bit array of one chunk's
+**Datatype:** `uint8`. Each row is the packed bit array of one chunk's
 Bloom filter.
 
-**Hash scheme.** HEP001 prescribes — for interoperability — the double
+**Hash scheme:** HEP001 prescribes — for interoperability — the double
 hashing `h_i(x) = h_a(x) + i · h_b(x) mod (8 · m_bytes)`, with `h_a` and
 `h_b` taken from the 64-bit halves of a 128-bit MurmurHash3 of the
 value's canonical byte representation, seeded with `0` and `0x9E3779B9`
 respectively. The number of hash functions `k` is stored as an
 attribute.
 
-**Additional attributes.**
+**Additional attributes:**
 
 * `KIND` — `"CHUNK_BLOOM"`.
 * `k` — scalar `uint16`. The number of hash functions.
@@ -754,7 +813,7 @@ attribute.
   MUST be `"murmur3_128_double"`.
 * `chunk_shape` — 1-D `uint64`, as in §8.4.
 
-**Applicability.** Exactly one column via `_columns_list`.
+**Applicability:** Exactly one column via `_columns_list`.
 
 ```{note}
 Bloom filter interoperability requires producers and consumers to agree
@@ -762,7 +821,7 @@ on hashing and canonical byte representation. HEP001 freezes both; a
 future revision MAY register alternative `hash_family` values.
 ```
 
-## 9. Consistency requirements
+## Consistency requirements
 
 A conformant table group satisfies all of the following at all times:
 
@@ -786,7 +845,7 @@ MUST either update the affected search indexes consistently or delete
 them before committing the mutation.
 
 (hep001-anndata)=
-## 10. Interoperability with Anndata
+## Interoperability with Anndata
 
 HEP001 and Anndata's DataFrame layout share the same fundamental idea —
 a group with one dataset per column — and HEP001 deliberately uses
@@ -816,9 +875,9 @@ them in the Anndata form and expose them to HEP001 consumers using a
 column that carries a descriptive `description` attribute.
 ```
 
-## 11. Worked examples
+## Worked examples
 
-### 11.1 A minimal table
+### A minimal table
 
 A table of three columns (`ts`, `energy`, `label`), a row index
 (`row_id`), and no search indexes.
@@ -854,7 +913,7 @@ A table of three columns (`ts`, `energy`, `label`), a row index
   _columns_list    = [ref(ts), ref(energy), ref(label)]
 ```
 
-### 11.2 Adding a chunk min/max search index
+### Adding a chunk min/max search index
 
 Extending §11.1 with a `CHUNK_MINMAX` index on `ts`:
 
@@ -872,7 +931,7 @@ Extending §11.1 with a `CHUNK_MINMAX` index on `ts`:
   _columns_list  = [ref(/my_table/ts)]
 ```
 
-### 11.3 A complete layout
+### A complete layout
 
 ```{mermaid}
 graph TD
@@ -898,7 +957,7 @@ graph TD
   ri -.-> lb
 ```
 
-## 12. Security considerations
+## Security considerations
 
 Search indexes are unsigned, untrusted derivative data. A consumer that
 trusts a table's column data MUST NOT, by default, trust the correctness
@@ -909,12 +968,12 @@ column it covers, or that ignores search indexes entirely. Producers
 SHOULD document the provenance of search indexes in the table group's
 `description` when that matters to their users.
 
-## 13. Open issues
+## Open issues
 
 The preamble of this file lists open design points that will be resolved
 during review. They will be moved here as substantive issues arise.
 
-## 14. Future work
+## Future work
 
 The following items are deliberately out of scope for HEP001 v1.0 and
 are candidates for future HEPs:
@@ -928,7 +987,7 @@ are candidates for future HEPs:
   consumer used to answer a query (for auditing);
 * conventions for append-only tables and for concurrent writers.
 
-## 15. References
+## References
 
 * HDF5 Table specification — HDF5 High-Level Library, The HDF Group.
   <https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html>
