@@ -592,6 +592,7 @@ This per-column flexibility is the core motivation for HEP001 and is
 normative: producers MUST NOT require columns to share chunk shape or
 filters. Consumers MUST treat each column's storage layout independently.
 
+(fill-vals)=
 ### Missing values (fill values)
 
 HEP001 does not define a sidecar mask dataset for missing values. A column
@@ -755,6 +756,7 @@ reference it from its own `SEARCH_INDEX_LIST` attribute. The two sides MUST
 stay consistent in the same sense as for index datasets
 ({ref}`hep001-indexes`).
 
+(common-idx-attrs)=
 ### Common per-index attributes
 
 Every search-index dataset MUST carry a scalar fixed-length ASCII
@@ -790,7 +792,7 @@ declaration order:
 * `nan_count` — `uint64`. The number of NaN values in the chunk. For
   non-floating-point columns this field MUST be present and set to 0.
 * `fill_count` — `uint64`. The number of elements in the chunk that equal
-  the column's HDF5 fill value (i.e. count of "missing" under §7.4).
+  the column's HDF5 fill value (i.e. count of "missing" under {numref}`§%s <fill-vals>`).
 * `n` — `uint64`. The number of logical rows covered by this chunk. The
   last chunk MAY be partially full, in which case `n` is strictly less
   than the column's chunk length.
@@ -813,7 +815,7 @@ independent.
 * `chunk_shape` — 1-D uint64 array. The source column's chunk shape at
   the time the index was built. (Not derivable from HDF5 metadata for
   contiguous columns; always redundant and checkable for chunked ones.)
-* `KIND` — `"CHUNK_MINMAX"` (see §9.3).
+* `KIND` — `"CHUNK_MINMAX"` (see {numref}`§%s <common-idx-attrs>`).
 
 **Query pattern:** To evaluate a predicate `col BETWEEN lo AND hi`:
 
@@ -851,7 +853,7 @@ deterministic. Handling of NaN and fill-value rows:
 * Floating-point columns MUST place NaN-valued rows at the end of the
   permutation, in increasing `r` order, and MUST set the attribute
   `nan_tail_length` to the count of such rows.
-* Rows whose value equals the column's fill value (§7.4) MUST appear
+* Rows whose value equals the column's fill value ({numref}`§%s <fill-vals>`) MUST appear
   immediately before the NaN tail, in increasing `r` order, and the
   attribute `fill_tail_length` MUST record the count.
 
@@ -922,7 +924,7 @@ attribute.
   for clarity.
 * `hash_family` — scalar fixed-length ASCII string; for this revision
   MUST be `"murmur3_128_double"`.
-* `chunk_shape` — 1-D `uint64`, as in §9.4.
+* `chunk_shape` — 1-D `uint64`, as in {numref}`§%s <chunk-minmax>`.
 
 **Applicability:** Exactly one column via `COLUMN_LIST`.
 
@@ -946,7 +948,7 @@ A conformant table group satisfies all of the following at all times:
 4. Every dataset in the `SEARCH_INDEXES` subgroup MUST carry a `KIND`
    attribute defined by this HEP (or a future, registered HEP).
 5. Every categorical column's `CATEGORIES` reference MUST resolve to a
-   dataset satisfying §7.7.
+   dataset satisfying {numref}`§%s <hep001-categoricals>`.
 6. `column-order`, when present, MUST list every column dataset of the
    table exactly once and MUST NOT list datasets that are not column
    datasets.
@@ -1008,7 +1010,7 @@ Until then, treat the lowercase form as load-bearing.
 
 ```{note}
 Anndata currently uses a nullable-integer / nullable-boolean encoding
-with a sidecar mask. HEP001 §7.4 uses fill values instead. Producers
+with a sidecar mask. HEP001 {numref}`§%s <fill-vals>` uses fill values instead. Producers
 targeting both ecosystems should either avoid nullable columns or write
 them in the Anndata form and expose them to HEP001 consumers using a
 column that carries a descriptive `description` attribute.
@@ -1016,6 +1018,7 @@ column that carries a descriptive `description` attribute.
 
 ## Worked examples
 
+(min-example-table)=
 ### A minimal table
 
 A table of three columns (`ts`, `energy`, `label`), a row index
@@ -1054,7 +1057,7 @@ A table of three columns (`ts`, `energy`, `label`), a row index
 
 ### Adding a chunk min/max search index
 
-Extending §12.1 with a `CHUNK_MINMAX` index on `ts`:
+Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`:
 
 ```
 /my_table/ts
