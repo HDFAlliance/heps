@@ -1,0 +1,72 @@
+/*
+ * HEP website typography
+ * --------------------------------------------------------------
+ * Body / running prose : Source Serif 4
+ * Headings, UI, nav    : Inter
+ * Code, kbd, pre       : JetBrains Mono
+ *
+ * Fonts are served from Bunny Fonts (https://fonts.bunny.net),
+ * a privacy-respecting, GDPR-friendly mirror of Google Fonts.
+ * No fonts are bundled with the repository.
+ */
+
+@import url('https://fonts.bunny.net/css?family=source-serif-4:200,400,400i,600,700|inter:300,400,500,600,700|jetbrains-mono:400,400i,500,700&display=swap');
+
+:root {
+  --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui:   "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* ---------- Body / running prose ---------- */
+html,
+body {
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.25;
+  font-feature-settings: "kern", "liga", "onum"; /* old-style numerals in prose */
+  font-variation-settings: "opsz" 17;          /* match optical-size axis to body size */
+
+  /* Cross-browser glyph rendering parity:
+     Firefox on macOS defaults to subpixel AA, which makes glyphs read
+     heavier than Safari/Chrome's modern grayscale AA. Force grayscale
+     on both engines so the perceived weight matches across browsers. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: antialiased;
+}
+
+/* ---------- Headings, navigation, UI chrome ---------- */
+h1, h2, h3, h4, h5, h6,
+nav, header, .navbar, .toc, .sidebar,
+.admonition-title, .figure-caption,
+button, .tag, .breadcrumb {
+  font-family: var(--font-ui);
+  font-feature-settings: "ss01", "cv11"; /* Inter's open-4 + single-story g */
+  letter-spacing: -0.011em;
+}
+
+/* ---------- Code: block, inline, kbd, samp ---------- */
+code, pre, kbd, samp,
+.highlight, .cell_input {
+  font-family: var(--font-mono);
+  font-feature-settings: "calt" off, "liga" off; /* literal characters in code */
+}
+
+pre,
+.highlight pre,
+.cell_input pre {
+  font-size: 0.92em;
+  line-height: 1.55;
+}
+
+:not(pre) > code {
+  font-size: 0.92em;
+}
+
+/* ---------- Tabular figures for tables and numeric data ---------- */
+table,
+td,
+th,
+.numeric {
+  font-variant-numeric: tabular-nums lining-nums;
+}

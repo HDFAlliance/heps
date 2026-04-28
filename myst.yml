@@ -33,6 +33,7 @@ site:
     favicon: images/HDF-favicon-32x32.png
     logo: images/HDF_transparent.png
     twitter: hdf5
+    style: ./custom.css
   nav:
     - title: Accepted Proposals
       url: /accepted
