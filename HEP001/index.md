@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: 2026-04-22
+date: May 2026
 tags:
   - draft
 keywords:
@@ -29,8 +29,6 @@ numbering:
 %   * For the chunk min/max search index of floating-point columns, should
 %     NaN handling be normative (e.g. NaNs never update min/max; a separate
 %     `nan_count` field records them)?
-%   * The Bloom filter appendix pins `k` hash functions using a specific
-%     seeded scheme; real adopters may need to negotiate interoperable hashes.
 % -----------------------------------------------------------------------------
 
 (hep001-title)=
@@ -82,7 +80,7 @@ multidimensional array datasets that are HDF5's traditional strength.
 
 ### A short overview of tabular data in HDF5
 
-The first widely adopted idiom is the [HDF5 Table
+The first adopted idiom is the [HDF5 Table
 specification](https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html)
 that ships with the HDF5 High-Level (`H5TB`) library. A table is a single
 one-dimensional dataset whose datatype is an HDF5 compound (record) type,
@@ -90,7 +88,7 @@ decorated with attributes such as `CLASS="TABLE"`, `VERSION`, `TITLE`,
 `FIELD_0_NAME … FIELD_N_NAME`, `FIELD_0_FILL … FIELD_N_FILL`, and `NROWS`.
 Rows of the logical table become elements of the dataset; columns become
 fields of the compound datatype. This layout is simple and portable, but it
-is fundamentally **row-oriented**: every row occupies contiguous bytes, every
+is fundamentally row-oriented: every row occupies contiguous bytes, every
 column shares the same chunking, and changing a single column's datatype,
 chunk shape, or compression filter requires rewriting the entire dataset.
 
@@ -99,7 +97,7 @@ package that has layered a rich query engine on top of HDF5. PyTables likewise
 stores a table as a single one-dimensional dataset of a compound type decorated
 with its own `CLASS="TABLE"`, `VERSION`, `TITLE`, `FIELD_N_FILL`, `NROWS`, and
 `PYTABLES_FORMAT_VERSION` attributes. This adds a rich family of companion
-structures for indexing, in-kernel queries, and compression with Blosc. PyTables
+structures for indexing, in-kernel queries, and compression with [Blosc](https://blosc.org/). PyTables
 popularized the idea that a useful table format needs more than data bytes:
 it needs indexes, metadata, and conventions that let tools reason about the
 data.
@@ -113,7 +111,7 @@ dataframe — `encoding-type="dataframe"`, `encoding-version`, `column-order` (a
 UTF-8 string array giving the column order), and `_index` (the name of the
 column that supplies row labels). Anndata extends this convention with dedicated
 encodings for nullable integers, nullable booleans, categoricals, sparse
-matrices, and more. This layout is **column-oriented**, and it is the closest
+matrices, and more. This layout is column-oriented, and it is the closest
 existing HDF5 practice to what modern analytical engines expect.
 
 ### Why columnar, and why now
@@ -149,7 +147,7 @@ lossless access to every tool in the HDF5 stack.
 A decisive advantage of HDF5 over dedicated columnar formats is that tabular
 data does not have to live alone. For example, an HDF5 file can hold:
 
-* a HEP001 table group with the experiment's per-event observations,
+* a table group with the experiment's per-event observations,
 * a multidimensional dataset of raw sensor images addressed by those events,
 * a dense array of calibration coefficients indexed by detector channel,
 * and any number of nested groups carrying derived products.
@@ -190,11 +188,11 @@ HEP001 specifies:
 HEP001 *does not* specify:
 
 * a query language or execution engine,
-* a particular on-the-wire protocol for distributing tables,
 * semantic conventions for domain-specific column units (outside the
   `units` / `units_vocabulary` attribute pair, which is descriptive only),
 * how tables are committed, versioned, or synchronized — those are the
   province of the storage layer and, perhaps, future HEPs.
+
 
 ## Conformance
 
@@ -209,120 +207,6 @@ A file, group, or dataset is HEP001-conformant when it satisfies every MUST in
 the section that applies to it. A producer is HEP001-conformant when every table
 group it writes is conformant; a consumer is conformant when it can read any
 conformant table group without data loss.
-
-(hep001-reserved-names)=
-## Reserved names
-
-HEP001 follows the long-standing HDF Group High-Level convention — established
-by the HDF5 Table specification, the HDF5 Image specification, and Dimension
-Scales — of writing specification-owned attribute and group names in
-fixed-length ASCII, UPPERCASE. The intent is that a reader scanning an HDF5
-file can tell at a glance which names belong to the specification and which were
-chosen by the producer of the data.
-
-### Naming rules
-
-1. Every attribute or group name introduced as part of the HEP001 specification
-   MUST be written in fixed-length uppercase ASCII, with underscores as the only
-   word separator (for example, `CLASS`, `COLUMN_LIST`, `SEARCH_INDEXES`).
-2. Producers MUST NOT use any reserved name listed in
-   {ref}`hep001-reserved-names-list` for a column dataset, an index dataset, a
-   user-supplied attribute, or any other purpose other than the one this HEP
-   assigns to it.
-3. Names that HEP001 deliberately shares with other ecosystems, currently
-   only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
-   exempt from rule 1 and MUST be written exactly as those ecosystems write
-   them. They are listed in {ref}`hep001-shared-names`.
-4. Descriptive annotation attributes `units`, `units_vocabulary`, and
-   `description` are also exempt from rule 1 and MUST be written in lowercase.
-   They carry no contractual meaning: their presence, absence, or value does not
-   change how a HEP001 consumer interprets the table or any of its objects. The
-   lowercase form aligns with broader HDF5 community practice (notably netCDF,
-   the CF metadata conventions, and Dublin Core descriptive metadata), so that
-   generic metadata harvesters and netCDF-aware tools can discover these
-   attributes on a HEP001 table without case-folding. Any future descriptive
-   annotation attribute introduced by this HEP or a successor MUST follow the
-   same lowercase convention. These attributes are defined alongside the objects
-   that may carry them ({ref}`hep001-table-group`, {ref}`hep001-columns`); they
-   do not appear in the reserved-name catalog because they are not part of the
-   HEP001 spec.
-5. Per-search-index *tunable* parameters that configure a particular index
-   family are not part of the reserved-name contract and are written in
-   lowercase `snake_case`. They are documented with the index family that
-   defines them ({ref}`hep001-search-indexes`).
-6. KIND values (the string contents of the `KIND` attribute) are themselves
-   reserved tokens and follow the same uppercase rule as reserved names.
-
-(hep001-reserved-names-list)=
-### Reserved name catalog
-
-The complete set of HEP001 reserved names is:
-
-**Group names**
-
-`SEARCH_INDEXES`
-: The reserved subgroup of a table group that holds every search-index dataset
-  for the table. See {ref}`hep001-search-indexes`.
-
-**Attribute names on the table group**
-
-`CLASS`
-: Identifies the group as a HEP001 table group. See {ref}`hep001-class`.
-
-`VERSION`
-: HEP001 revision the table conforms to.
-
-`TITLE`
-: Human-readable title of the table (optional).
-
-**Attribute names on column datasets**
-
-`INDEX_LIST`
-: Object references to the index datasets that label this column.
-
-`SEARCH_INDEX_LIST`
-: Object references to the search-index datasets that accelerate queries on
-  this column.
-
-`CATEGORIES`
-: Object reference to the categories dataset that backs a categorical column.
-
-**Attribute names on index, search-index, and categories datasets**
-
-`COLUMN_LIST`
-: Object references to the column datasets that an index dataset or
-  search-index dataset applies to.
-
-`KIND`
-: ASCII enum that identifies the family of a search-index dataset.
-
-`VALUES`
-: Object reference, on a `BITMAP` search-index dataset, to its accompanying
-  values dataset.
-
-**KIND values**
-
-`COLUMN_TABLE`, `CHUNK_MINMAX`, `SORTED_ROWS`, `BITMAP`, `CHUNK_BLOOM` — see
-{ref}`hep001-class` and {ref}`hep001-search-indexes`. Future HEPs MAY register
-additional KIND values; consumers MUST treat unknown values as "ignore this
-search index".
-
-(hep001-shared-names)=
-### Names shared with Anndata
-
-The following attribute names and string values are written in **lowercase**,
-exactly as Anndata writes them, so that a single HEP001 table group can also
-be a valid Anndata DataFrame ({ref}`hep001-anndata`). They are reserved for
-their Anndata-defined meaning and MUST NOT be repurposed:
-
-* attribute names — `column-order`, `_index`, `encoding-type`,
-  `encoding-version`, `ordered`;
-* string values — `"dataframe"` and `"categorical"` when written into an
-  `encoding-type` attribute.
-
-A producer that does not target Anndata interoperability MAY omit these
-names, but if it writes them at all it MUST write them in this exact form
-(lowercase, with the hyphens and underscore as shown).
 
 
 ## Terminology
@@ -347,20 +231,136 @@ Index dataset
   supplies row labels for one or more column datasets. Distinguished by the
   presence of the `COLUMN_LIST` attribute.
 
-Search index dataset
-: An HDF5 dataset stored under the `SEARCH_INDEXES` child group of a table
-  group that accelerates queries over one or more column datasets. Each kind
-  of search index is specified in {ref}`hep001-search-indexes`.
-
 Row
 : A position `i` in a column dataset. Every column dataset and every index
   dataset in the same table group MUST have the same length, so the same
   `i` refers to the same logical row everywhere.
 
+Search index dataset
+: An HDF5 dataset stored under the `SEARCH_INDEXES` child group of a table
+  group that accelerates queries over one or more column datasets. Each kind
+  of search index is specified in {ref}`hep001-search-indexes`.
+
+
+(hep001-reserved-names)=
+## Reserved names
+
+HEP001 follows the long-standing HDF Group High-Level API practice — established
+by the HDF5 Table, Image, and Dimension Scales specifications — of writing
+reserved attribute and group names in fixed-length ASCII, UPPERCASE. The intent
+is that a reader scanning an HDF5 file can tell at a glance which names belong
+to the specification and which were chosen by the producer of the data.
+
+### Naming rules
+
+1. Every attribute or group name introduced as part of the HEP001 specification
+   MUST be written in fixed-length uppercase ASCII, with underscores as the only
+   word separator (for example, `CLASS`, `COLUMN_LIST`, `SEARCH_INDEXES`).
+2. Producers MUST NOT use any reserved name listed in
+   {ref}`hep001-reserved-names-list` for a column dataset, an index dataset, a
+   user-supplied attribute, or any other purpose other than the one this HEP
+   assigns to it.
+3. Names that HEP001 deliberately shares with other ecosystems, currently
+   only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
+   exempt from rule 1 and MUST be written exactly as those ecosystems write
+   them. They are listed in {ref}`hep001-shared-names`.
+4. Descriptive annotation attributes `units`, `units_vocabulary`, and
+   `description` are also exempt from rule 1 and MUST be written in lowercase.
+   They carry no contractual meaning: their presence, absence, or value does not
+   change how a HEP001 consumer interprets the table or any of its objects. The
+   lowercase form aligns with broader HDF5 community practice, so that generic
+   metadata harvesters and can discover these attributes on a HEP001 table
+   without case-folding. Any future descriptive annotation attribute introduced
+   by this HEP or a successor MUST follow the same lowercase convention. These
+   attributes are defined alongside the objects that may carry them
+   ({ref}`hep001-table-group`, {ref}`hep001-columns`); they do not appear in the
+   reserved-name catalog because they are not part of the HEP001 spec.
+5. Per-search-index *tunable* parameters that configure a particular index
+   family are not part of the reserved-name contract and are written in
+   lowercase `snake_case`. They are documented with the index family that
+   defines them ({ref}`hep001-search-indexes`).
+6. KIND values (the string contents of the `KIND` attribute) are themselves
+   reserved tokens and follow the same uppercase rule as reserved names.
+
+(hep001-reserved-names-list)=
+### Reserved name catalog
+
+The complete set of HEP001 reserved names is listed below.
+
+#### Group names
+
+`SEARCH_INDEXES`
+: The reserved subgroup of a table group that holds every search-index dataset
+  for the table. See {ref}`hep001-search-indexes`.
+
+#### Table group attribute names
+
+`CLASS`
+: Identifies the group as a HEP001 table group. See {ref}`hep001-class`.
+
+`VERSION`
+: HEP001 revision the table conforms to.
+
+`TITLE`
+: Human-readable title of the table (optional).
+
+#### Column dataset attribute names
+
+`INDEX_LIST`
+: Object references to the index datasets that label this column.
+
+`SEARCH_INDEX_LIST`
+: Object references to the search-index datasets that accelerate queries on
+  this column.
+
+`CATEGORIES`
+: Object reference to the categories dataset that backs a categorical column.
+
+#### Index, search-index, and categories dataset attribute names
+
+`COLUMN_LIST`
+: Object references to the column datasets that an index dataset or
+  search-index dataset applies to.
+
+`KIND`
+: ASCII enum that identifies the family of a search-index dataset.
+
+`VALUES`
+: Object reference, on a `BITMAP` search-index dataset, to its accompanying
+  values dataset.
+
+#### `KIND` attribute values
+
+* `CHUNK_MINMAX`
+* `SORTED_ROWS`
+* `BITMAP`
+* `CHUNK_BLOOM`
+
+See {ref}`hep001-search-indexes` for their meaning. Consumers MUST treat unknown
+values as "ignore this search index".
+
+(hep001-shared-names)=
+### Names shared with Anndata
+
+The following attribute names and string values are written in **lowercase**,
+exactly as Anndata writes them, so that a single HEP001 table group can also
+be a valid Anndata DataFrame ({ref}`hep001-anndata`). They are reserved for
+their Anndata-defined meaning and MUST NOT be repurposed:
+
+* attribute names — `column-order`, `_index`, `encoding-type`,
+  `encoding-version`, `ordered`;
+* string values — `"dataframe"` and `"categorical"` when written into an
+  `encoding-type` attribute.
+
+A producer that does not target Anndata interoperability MAY omit these
+names, but if it writes them at all it MUST write them in this exact form
+(lowercase, with the hyphens and underscore as shown).
+
+
 ## Data model overview
 
 A HEP001 table is an HDF5 **group** whose direct children are the table's
-columns (and, optionally, row indexes), plus a reserved `SEARCH_INDEXES`
+columns and, optionally, index datasets and a reserved `SEARCH_INDEXES`
 subgroup that holds query-acceleration structures.
 
 ```{mermaid}
@@ -391,8 +391,9 @@ datasets ({ref}`hep001-indexes`), and the four kinds of search index dataset
 
 Every HEP001 table group MUST carry an attribute named `CLASS` with:
 
-* datatype: fixed-length ASCII string, 12 bytes (exactly the length of the
-  value below), null-terminated or null-padded per the HDF5 string conventions,
+* datatype: fixed-length ASCII string, 12 bytes (exactly the length of the value
+  below), null-terminated or null-padded per the HDF5 string datatype
+  conventions,
 * shape: scalar,
 * value: `COLUMN_TABLE`.
 
@@ -402,9 +403,9 @@ the presence of a scalar `CLASS` attribute whose string value equals
 group that does not satisfy the rest of this specification.
 
 ```{note}
-`CLASS` uses fixed-length ASCII to match long-standing HDF5 High-Level
-convention (HDF5 Table, PyTables, Image spec). All other string attributes
-in this spec are UTF-8 unless explicitly stated otherwise.
+`CLASS` uses fixed-length ASCII to match the long-standing HDF5 High-Level API
+conventions. All other string attributesin this spec are UTF-8 unless explicitly
+stated otherwise.
 
 HDF5 fixed-length strings are byte-length-bounded. Producers MUST size
 each fixed-length UTF-8 attribute with enough bytes to hold the longest
@@ -417,12 +418,11 @@ HDF5 string conventions.
 
 Every HEP001 table group MUST carry a scalar, fixed-length ASCII attribute
 named `VERSION` whose value is the HEP001 revision the table conforms to.
-For this revision the value is `1.0`.
+For this revision the value is `"1.0"`. HEP001 consumers MUST interpret these values according to the [SemVer] specification.
 
-Future revisions of HEP001 MUST either preserve backward compatibility
-with `1.0` consumers or bump the major version.
+[SemVer]: https://semver.org/
 
-### Optional table-level attributes
+### Optional table group attributes
 
 The table group MAY carry the following attributes.
 
@@ -482,7 +482,7 @@ graph TD
   end
   subgraph Nested
     R2(["/ (root)"])
-    R2 --> G1["/experiments/"]
+    R2 --> G1(["/experiments/"])
     G1 --> T1(["run_042 (table group)"])
     G1 --> T2(["run_043 (table group)"])
     R2 --> IMG["/images (3-D dataset)"]
@@ -519,9 +519,7 @@ In particular, a producer MUST NOT place under a table group:
 
 * unrelated tables, including other HEP001 table groups;
 * multidimensional array datasets that are not derived from, or
-  exclusively bound to, the columns of this table;
-* user data, application state, or arbitrary metadata that is not
-  defined by this HEP or a future, registered HEP.
+  exclusively bound to, the columns of this table.
 
 Producers that wish to colocate such content with a table MUST do so by
 placing it as a sibling of the table group, or under an unrelated parent
@@ -550,33 +548,32 @@ chooses.
 Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
 
 * is a direct child of the table group,
-* has rank 1,
-* has the same length as every other column dataset and index dataset in
-  the same table group.
+* has rank 1 shape,
+* has the same length (number of elements) as every other column dataset and
+  index dataset in the same table group.
 
 The {ref}` name <hep001-dset-name>` of the HDF5 dataset is the column name. Any
 name acceptable as an HDF5 link name (UTF-8, excluding `/` and NUL) is
 permitted. Producers MUST NOT use any HEP001 reserved name
-({ref}`hep001-reserved-names-list`) — which includes the group name
-`SEARCH_INDEXES` — as a column name. Producers SHOULD also avoid names that
-begin with an underscore, which are reserved for Anndata-aligned attribute
-names (`_index`) and may be claimed by future HEPs.
+({ref}`hep001-reserved-names-list`) as a column name. Producers SHOULD also
+avoid names that begin with an underscore, which are reserved for
+Anndata-aligned attribute names (`_index`) and may be claimed by future HEPs.
 
 ### Datatypes
 
 The datatype of a column dataset MAY be any HDF5 datatype. Consumers that
-encounter a datatype they cannot map to their in-memory model SHOULD surface the
-column's raw datatype rather than dropping it silently.
+encounter a datatype they do not recognize SHOULD show the column's raw datatype
+instead of quietly ignoring it.
 
 Two caveats apply:
 
 1. Compound datatypes at the column level are permitted, but a table group
    is not a mechanism for storing a nested row-oriented table. When a
-   compound-typed column is used, its fields SHOULD be logically atomic.
-2. Variable-length datatypes are permitted and often desirable (e.g.
-   variable-length UTF-8 strings, ragged numeric arrays). Producers SHOULD
-   apply chunking and filters consistent with the datatype's storage
-   characteristics.
+   compound-typed column is used, its fields MUST be logically atomic.
+2. Variable-length datatypes (e.g. variable-length UTF-8 strings, ragged numeric
+   arrays) are permitted but generally discouraged, as their storage
+   characteristics are poorly suited to columnar access patterns. Producers
+   SHOULD prefer fixed-length equivalents where possible.
 
 ### Chunking and filters
 
@@ -662,11 +659,13 @@ A categorical column MUST:
 The categories dataset MUST:
 
 1. Live directly under the same table group.
-2. Have rank 1, and any datatype appropriate to the category values
-   (typically UTF-8 variable-length string).
-3. Carry a scalar UTF-8 string attribute `encoding-type` with value
+1. Have rank 1, and any datatype appropriate to the category values.
+
+The categories dataset MAY:
+
+1. Carry a scalar UTF-8 string attribute `encoding-type` with value
    `"categorical"` (matching Anndata).
-4. Carry a scalar boolean attribute `ordered` (matching Anndata's ordered
+1. Carry a scalar boolean attribute `ordered` (matching Anndata's ordered
    categoricals). Producers MUST set `ordered` to true exactly when the
    order of entries in the categories dataset is semantically meaningful.
 
@@ -676,8 +675,8 @@ metadata of its linked column rather than as a standalone column.
 
 ```{mermaid}
 graph LR
-  col["label (int8)<br/>CATEGORIES &rarr; label__CATEGORIES"]
-  cat["label__CATEGORIES (vlen UTF-8)<br/>encoding-type=&quot;categorical&quot;<br/>ordered=false"]
+  col["label<br/>(int8)<br/>CATEGORIES &rarr; label__CATEGORIES"]
+  cat["label__CATEGORIES<br/>(fixed UTF-8)<br/>encoding‑type=&quot;categorical&quot;<br/>ordered=false"]
   col -- object ref --> cat
 ```
 
@@ -781,8 +780,10 @@ numeric column by letting the engine skip chunks whose value range does
 not overlap the predicate.
 
 **Shape:** The index dataset is 1-D with length equal to the number of chunks in
-the source column dataset (`ceil(column_length / chunk_length)` for a chunked
-column). A contiguous column (dataset) is treated as having one chunk.
+the source column dataset:
+
+* `ceil(column_length / chunk_length)` for a chunked column,
+* `1` for a contiguous column.
 
 **Datatype:** An HDF5 compound datatype with the following fields, in
 declaration order:
@@ -793,12 +794,12 @@ declaration order:
   non-floating-point columns this field MUST be present and set to 0.
 * `fill_count` — `uint64`. The number of elements in the chunk that equal
   the column's HDF5 fill value (i.e. count of "missing" under {numref}`§%s <fill-vals>`).
-* `n` — `uint64`. The number of logical rows covered by this chunk. The
-  last chunk MAY be partially full, in which case `n` is strictly less
-  than the column's chunk length.
+* `n` — `uint64`. The number of logical rows covered by this chunk. Because the
+  last chunk may be partially full, `n` is strictly less than or equal to the
+  column's chunk length.
 
 **Semantics:** For floating-point columns, `min` and `max` MUST ignore
-NaN values — if every value in the chunk is NaN, `min` and `max` MUST be
+`NaN` values — if every value in the chunk is `NaN`, `min` and `max` MUST be
 set to the column's fill value and `nan_count` MUST equal `n`. For
 integer and other orderable types, `min` and `max` are the ordinary
 ordering extrema over the chunk's values, treating fill-value elements
@@ -812,9 +813,6 @@ independent.
 
 **Additional attributes on the index dataset:**
 
-* `chunk_shape` — 1-D uint64 array. The source column's chunk shape at
-  the time the index was built. (Not derivable from HDF5 metadata for
-  contiguous columns; always redundant and checkable for chunked ones.)
 * `KIND` — `"CHUNK_MINMAX"` (see {numref}`§%s <common-idx-attrs>`).
 
 **Query pattern:** To evaluate a predicate `col BETWEEN lo AND hi`:
@@ -877,19 +875,21 @@ columns.
 **Shape:** 2-D of shape `(K, ceil(N / 8))`, where `K` is the number of
 distinct values (or categories) indexed and `N` is the column length.
 
-**Datatype:** `uint8`. Bit `r % 8` of byte `r / 8` of row `k` is set iff
-the column's value at row `r` equals the `k`-th indexed value.
+**Datatype:** `uint8`. Bit `r % 8` (where bit 0 is the byte's least
+significant bit) of byte `r / 8` of row `k` is set if the column's value
+at row `r` equals the `k`-th indexed value. Because the storage element
+is `uint8`, HDF5 performs no byte swapping on read or write — the bytes
+on disk are exactly the bytes the producer wrote.
 
-**Accompanying values dataset:** A sibling 1-D dataset named
-`<bitmap_name>__VALUES`, under `SEARCH_INDEXES`, holds the `K` indexed
-values in the same datatype as the source column. Its name is linked
-from the bitmap via a scalar `VALUES` object-reference attribute.
+**Accompanying values dataset:** A sibling 1-D dataset, under `SEARCH_INDEXES`,
+holds the `K` indexed values in the same datatype as the source column. Its name
+is linked from the bitmap via a scalar `VALUES` object-reference attribute.
 
 **Additional attributes on the bitmap dataset:**
 
 * `KIND` — `"BITMAP"`.
 * `VALUES` — scalar HDF5 object reference to the values dataset.
-* `ordered` — scalar boolean; true iff the rows of the bitmap follow the
+* `ordered` — scalar boolean; true if the rows of the bitmap follow the
   ordering of the values.
 
 **Applicability:** Exactly one column via `COLUMN_LIST`.
@@ -907,14 +907,64 @@ number of chunks in the source column and `m_bytes` is the Bloom-filter
 byte length per chunk (constant across chunks).
 
 **Datatype:** `uint8`. Each row is the packed bit array of one chunk's
-Bloom filter.
+Bloom filter. Because the storage element is `uint8`, HDF5 performs no
+byte swapping on read or write — the bytes on disk are exactly the
+bytes the producer wrote.
 
-**Hash scheme:** HEP001 prescribes — for interoperability — the double
-hashing `h_i(x) = h_a(x) + i · h_b(x) mod (8 · m_bytes)`, with `h_a` and
-`h_b` taken from the 64-bit halves of a 128-bit MurmurHash3 of the
-value's canonical byte representation, seeded with `0` and `0x9E3779B9`
-respectively. The number of hash functions `k` is stored as an
+**Bit packing:** Filter bit `g` (where `0 ≤ g < m_bits`) is stored at
+bit position `g % 8` (where bit 0 is the byte's least significant bit)
+of byte `g / 8` of the chunk's row. Equivalently, setting filter bit
+`g` is `row[g >> 3] |= (uint8_t)1 << (g & 7)`. `m_bits` MUST be a
+multiple of 8, so that `m_bytes = m_bits / 8` is exact.
+
+**Hash scheme:** HEP001 prescribes — for interoperability — Kirsch–Mitzenmacher
+double hashing `h_i(x) = (h_a(x) + i * h_b(x)) mod (8 * m_bytes)` for `i = 0 … k
+− 1`. Both `h_a` and `h_b` come from a single invocation of
+`MurmurHash3_x64_128` (the 128-bit, 64-bit-tuned variant of [MurmurHash3]) over
+the value's *canonical byte representation* (see below), seeded with the value
+of the `seed` attribute. The low 64 bits of the 128-bit output become `h_a`; the
+high 64 bits become `h_b`. The number of hash functions `k` is stored as an
 attribute.
+
+[MurmurHash3]: https://en.wikipedia.org/wiki/MurmurHash#MurmurHash3
+
+**Canonical byte representation:** Bloom-filter hashes MUST be computed
+over a column value's *canonical byte representation*, defined here.
+The canonical form is independent of how the column is stored on disk:
+a column written in big-endian MUST be transcoded to its canonical form
+before hashing, and a consumer evaluating a query MUST canonicalize the
+query value identically before testing the filter.
+
+* **Signed integers** (`int8`, `int16`, `int32`, `int64`): the value's
+  two's-complement representation in the column's storage width, packed
+  **little-endian**. An `int8` is one byte; an `int64` is exactly eight.
+* **Unsigned integers** (`uint8` … `uint64`): the value's unsigned
+  representation in the column's storage width, packed **little-endian**.
+* **Floating-point values** (`float16`, `float32`, `float64`): the
+  value's IEEE 754 binary encoding at the column's storage width, packed
+  **little-endian**. NaN values MUST NOT be inserted into a Bloom filter
+  — different NaN bit patterns would yield different filter bits and
+  break interoperability — and consumers MUST NOT query for NaN against
+  a `CHUNK_BLOOM` index. Producers MUST normalize negative zero to
+  positive zero before hashing.
+* **Boolean values:** a single byte, `0x00` for false or `0x01` for true.
+* **Fixed- and variable-length strings:** the string's **UTF-8** byte
+  sequence, with **no byte-order mark** and **no Unicode normalization**
+  (no NFC, NFD, NFKC, or NFKD conversion is applied). For HDF5
+  fixed-length strings, trailing NUL padding and the optional NUL
+  terminator MUST be stripped before hashing, so that the same logical
+  string hashes identically whether stored fixed- or variable-length.
+  Strings whose declared HDF5 character set is `H5T_CSET_ASCII` MUST be
+  hashed as if they were UTF-8 (ASCII is a strict subset).
+* **Opaque (`H5T_OPAQUE`) values:** the raw bytes of the value in column
+  order; the opaque tag, if any, is not part of the hashed bytes.
+* **HDF5 object and region references:** out of scope for this revision.
+  Producers MUST NOT build a `CHUNK_BLOOM` index over a reference-typed
+  column.
+* **Compound, enum, array, and variable-length-array datatypes:** out
+  of scope for this revision. Producers MUST NOT build a `CHUNK_BLOOM`
+  index over composite-typed columns. A future HEP MAY register
+  canonical encodings for these cases.
 
 **Additional attributes:**
 
@@ -923,15 +973,22 @@ attribute.
 * `m_bits` — scalar `uint64`. Equal to `8 * m_bytes`; stored explicitly
   for clarity.
 * `hash_family` — scalar fixed-length ASCII string; for this revision
-  MUST be `"murmur3_128_double"`.
-* `chunk_shape` — 1-D `uint64`, as in {numref}`§%s <chunk-minmax>`.
+  MUST be `"murmur3_x64_128_double"`.
+* `seed` — scalar `uint64`. The seed passed to `MurmurHash3_x64_128`.
+  Default `0`. Producers MAY change the seed to mitigate adversarial
+  inputs; consumers MUST read the seed from this attribute rather than
+  assuming `0`.
 
-**Applicability:** Exactly one column via `COLUMN_LIST`.
+**Applicability:** Exactly one column via `COLUMN_LIST`. The column's
+HDF5 datatype MUST belong to one of the kinds enumerated under
+*Canonical byte representation*; otherwise no `CHUNK_BLOOM` index is
+permitted.
 
 ```{note}
-Bloom filter interoperability requires producers and consumers to agree
-on hashing and canonical byte representation. HEP001 freezes both; a
-future revision MAY register alternative `hash_family` values.
+Bloom-filter interoperability requires producers and consumers to agree
+byte-for-byte on hashing input. HEP001 freezes both the hash family and
+the canonical encoding; a future revision MAY register alternative
+`hash_family` values or canonical encodings for additional datatypes.
 ```
 
 ## Consistency requirements
@@ -1069,7 +1126,6 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
     compound {min: int64, max: int64, nan_count: uint64,
               fill_count: uint64, n: uint64}, shape (n_chunks,))
   KIND          = "CHUNK_MINMAX"
-  chunk_shape   = [chunk_length]
   COLUMN_LIST   = [ref(/my_table/ts)]
 ```
 
