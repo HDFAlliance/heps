@@ -1095,6 +1095,13 @@ attributes specific to HEP001 (`CLASS`, `VERSION`, `INDEX_LIST`,
 `units_vocabulary`, `valid_min`, `valid_max`) are ignored by Anndata and
 left intact.
 
+Producers targeting both ecosystems SHOULD set the fill value of a
+categorical column to `-1` (for signed codes) or the maximum unsigned
+value (for unsigned codes), overriding the default sentinel from
+{numref}`§%s <fill-table>`, so that Anndata's pandas-derived missingness
+convention is honored. The `valid_min` and `valid_max` attributes declare
+the actual code range for HEP001 consumers.
+
 ### Required casing for dual-ecosystem producers
 
 A producer that wants its table groups to be readable by both HEP001 and
