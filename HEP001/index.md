@@ -242,130 +242,6 @@ Search index dataset
   of search index is specified in {ref}`hep001-search-indexes`.
 
 
-(hep001-reserved-names)=
-## Reserved names
-
-HEP001 follows the long-standing HDF Group High-Level API practice — established
-by the HDF5 Table, Image, and Dimension Scales specifications — of writing
-reserved attribute and group names in fixed-length ASCII, UPPERCASE. The intent
-is that a reader scanning an HDF5 file can tell at a glance which names belong
-to the specification and which were chosen by the producer of the data.
-
-### Naming rules
-
-1. Every attribute or group name introduced as part of the HEP001 specification
-   MUST be written in fixed-length uppercase ASCII, with underscores as the only
-   word separator (for example, `CLASS`, `COLUMN_LIST`, `SEARCH_INDEXES`).
-
-2. Producers MUST NOT use any reserved name listed in
-   {ref}`hep001-reserved-names-list` for a column dataset, an index dataset, a
-   user-supplied attribute, or any other purpose other than the one this HEP
-   assigns to it.
-
-3. Names that HEP001 deliberately shares with other ecosystems, currently
-   only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
-   exempt from rule 1 and MUST be written exactly as those ecosystems write
-   them. They are listed in {ref}`hep001-shared-names`.
-
-4. Several attributes that align with broader scientific HDF5 community
-   practice are exempt from rule 1 and MUST be written in lowercase, so that
-   generic metadata harvesters and existing tools can discover them on a
-   HEP001 table without case-folding.
-
-   The value-domain attributes `valid_min` and `valid_max`, when present on
-   a column dataset, carry contractual meaning: the column's fill value
-   MUST lie strictly outside `[valid_min, valid_max]` (see
-   {numref}`§%s <fill-vals>`). They appear in the reserved-name catalog
-   ({ref}`hep001-reserved-names-list`) despite being lowercase.
-
-5. Per-search-index *tunable* parameters that configure a particular index
-   family are not part of the reserved-name contract and are written in
-   lowercase `snake_case`. They are documented with the index family that
-   defines them ({ref}`hep001-search-indexes`).
-
-6. KIND values (the string contents of the `KIND` attribute) are themselves
-   reserved tokens and follow the same uppercase rule as reserved names.
-
-(hep001-reserved-names-list)=
-### Reserved name catalog
-
-The complete set of HEP001 reserved names is listed below.
-
-#### Group names
-
-`SEARCH_INDEXES`
-: The reserved subgroup of a table group that holds every search-index dataset
-  for the table. See {ref}`hep001-search-indexes`.
-
-#### Table group attribute names
-
-`CLASS`
-: Identifies the group as a HEP001 table group. See {ref}`hep001-class`.
-
-`VERSION`
-: HEP001 revision the table conforms to.
-
-`TITLE`
-: Human-readable title of the table (optional).
-
-#### Column dataset attribute names
-
-`INDEX_LIST`
-: Object references to the index datasets that label this column.
-
-`SEARCH_INDEX_LIST`
-: Object references to the search-index datasets that accelerate queries on
-  this column.
-
-`CATEGORIES`
-: Object reference to the categories dataset that backs a categorical column.
-
-`valid_min`, `valid_max` *(lowercase, by exception)*
-: Inclusive lower and upper bounds of the column's logical value range.
-  Each is a scalar attribute whose datatype matches the column's element
-  datatype. See {numref}`§%s <fill-vals>`.
-
-#### Index, search-index, and categories dataset attribute names
-
-`COLUMN_LIST`
-: Object references to the column datasets that an index dataset or
-  search-index dataset applies to.
-
-`KIND`
-: ASCII enum that identifies the family of a search-index dataset.
-
-`VALUES`
-: Object reference, on a `BITMAP` search-index dataset, to its accompanying
-  values dataset.
-
-#### `KIND` attribute values
-
-* `CHUNK_MINMAX`
-* `SORTED_ROWS`
-* `BITMAP`
-* `CHUNK_BLOOM`
-
-See {ref}`hep001-search-indexes` for their meaning. Consumers MUST treat unknown
-values as "ignore this search index".
-
-(hep001-shared-names)=
-### Names shared with Anndata
-
-The following attribute names and string values are written in **lowercase**,
-exactly as Anndata writes them, so that a single HEP001 table group can also
-be a valid Anndata DataFrame ({ref}`hep001-anndata`). They are reserved for
-their Anndata-defined meaning and MUST NOT be repurposed:
-
-* attribute names — `column-order`, `_index`, `encoding-type`,
-  `encoding-version`, `ordered`;
-* string values — `"dataframe"` and `"categorical"` when written into an
-  `encoding-type` attribute.
-
-A producer that does not target Anndata interoperability MAY omit these
-names, but if it writes them at all it MUST write them in this exact form
-(lowercase, with the hyphens and underscore as shown).
-
-
 ## Data model overview
 
 A HEP001 table is an HDF5 **group** whose direct children are the table's
@@ -1141,6 +1017,129 @@ targeting both ecosystems should either avoid nullable columns or write
 them in the Anndata form and expose them to HEP001 consumers using a
 column that carries a descriptive `description` attribute.
 ```
+
+(hep001-reserved-names)=
+## Reserved names
+
+HEP001 follows the long-standing HDF Group High-Level API practice — established
+by the HDF5 Table, Image, and Dimension Scales specifications — of writing
+reserved attribute and group names in fixed-length ASCII, UPPERCASE. The intent
+is that a reader scanning an HDF5 file can tell at a glance which names belong
+to the specification and which were chosen by the producer of the data.
+
+### Naming rules
+
+1. Every attribute or group name introduced as part of the HEP001 specification
+   MUST be written in fixed-length uppercase ASCII, with underscores as the only
+   word separator (for example, `CLASS`, `COLUMN_LIST`, `SEARCH_INDEXES`).
+
+2. Producers MUST NOT use any reserved name listed in
+   {ref}`hep001-reserved-names-list` for a column dataset, an index dataset, a
+   user-supplied attribute, or any other purpose other than the one this HEP
+   assigns to it.
+
+3. Names that HEP001 deliberately shares with other ecosystems, currently
+   only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
+   exempt from rule 1 and MUST be written exactly as those ecosystems write
+   them. They are listed in {ref}`hep001-shared-names`.
+
+4. Several attributes that align with broader scientific HDF5 community
+   practice are exempt from rule 1 and MUST be written in lowercase, so that
+   generic metadata harvesters and existing tools can discover them on a
+   HEP001 table without case-folding.
+
+   The value-domain attributes `valid_min` and `valid_max`, when present on
+   a column dataset, carry contractual meaning: the column's fill value
+   MUST lie strictly outside `[valid_min, valid_max]` (see
+   {numref}`§%s <fill-vals>`). They appear in the reserved-name catalog
+   ({ref}`hep001-reserved-names-list`) despite being lowercase.
+
+5. Per-search-index *tunable* parameters that configure a particular index
+   family are not part of the reserved-name contract and are written in
+   lowercase `snake_case`. They are documented with the index family that
+   defines them ({ref}`hep001-search-indexes`).
+
+6. KIND values (the string contents of the `KIND` attribute) are themselves
+   reserved tokens and follow the same uppercase rule as reserved names.
+
+(hep001-reserved-names-list)=
+### Reserved name catalog
+
+The complete set of HEP001 reserved names is listed below.
+
+#### Group names
+
+`SEARCH_INDEXES`
+: The reserved subgroup of a table group that holds every search-index dataset
+  for the table. See {ref}`hep001-search-indexes`.
+
+#### Table group attribute names
+
+`CLASS`
+: Identifies the group as a HEP001 table group. See {ref}`hep001-class`.
+
+`VERSION`
+: HEP001 revision the table conforms to.
+
+`TITLE`
+: Human-readable title of the table (optional).
+
+#### Column dataset attribute names
+
+`INDEX_LIST`
+: Object references to the index datasets that label this column.
+
+`SEARCH_INDEX_LIST`
+: Object references to the search-index datasets that accelerate queries on
+  this column.
+
+`CATEGORIES`
+: Object reference to the categories dataset that backs a categorical column.
+
+`valid_min`, `valid_max` *(lowercase, by exception)*
+: Inclusive lower and upper bounds of the column's logical value range.
+  Each is a scalar attribute whose datatype matches the column's element
+  datatype. See {numref}`§%s <fill-vals>`.
+
+#### Index, search-index, and categories dataset attribute names
+
+`COLUMN_LIST`
+: Object references to the column datasets that an index dataset or
+  search-index dataset applies to.
+
+`KIND`
+: ASCII enum that identifies the family of a search-index dataset.
+
+`VALUES`
+: Object reference, on a `BITMAP` search-index dataset, to its accompanying
+  values dataset.
+
+#### `KIND` attribute values
+
+* `CHUNK_MINMAX`
+* `SORTED_ROWS`
+* `BITMAP`
+* `CHUNK_BLOOM`
+
+See {ref}`hep001-search-indexes` for their meaning. Consumers MUST treat unknown
+values as "ignore this search index".
+
+(hep001-shared-names)=
+### Names shared with Anndata
+
+The following attribute names and string values are written in **lowercase**,
+exactly as Anndata writes them, so that a single HEP001 table group can also
+be a valid Anndata DataFrame ({ref}`hep001-anndata`). They are reserved for
+their Anndata-defined meaning and MUST NOT be repurposed:
+
+* attribute names — `column-order`, `_index`, `encoding-type`,
+  `encoding-version`, `ordered`;
+* string values — `"dataframe"` and `"categorical"` when written into an
+  `encoding-type` attribute.
+
+A producer that does not target Anndata interoperability MAY omit these
+names, but if it writes them at all it MUST write them in this exact form
+(lowercase, with the hyphens and underscore as shown).
 
 ## Worked examples
 
