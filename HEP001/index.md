@@ -400,16 +400,15 @@ datasets ({ref}`hep001-indexes`), and the four kinds of search index dataset
 
 Every HEP001 table group MUST carry an attribute named `CLASS` with:
 
-* datatype: fixed-length ASCII string, 12 bytes (exactly the length of the value
-  below), null-terminated or null-padded per the HDF5 string datatype
-  conventions,
+* datatype: null-terminated or null-padded fixed-length ASCII string, 12 bytes
+  (exactly the length of the value below),
 * shape: scalar,
 * value: `COLUMN_TABLE`.
 
-A consumer MUST identify a group as a HEP001 table group by, and only by,
-the presence of a scalar `CLASS` attribute whose string value equals
-`COLUMN_TABLE`. A producer MUST NOT write `CLASS="COLUMN_TABLE"` on any
-group that does not satisfy the rest of this specification.
+A consumer MUST identify a group as a HEP001 table group by, and only by, the
+presence of a `CLASS` attribute whose string value equals `COLUMN_TABLE`. A
+producer MUST NOT write `CLASS="COLUMN_TABLE"` attribute on any group that does
+not satisfy the rest of this specification.
 
 ```{note}
 `CLASS` uses fixed-length ASCII to match the long-standing HDF5 High-Level API
