@@ -379,7 +379,7 @@ graph TD
 A table group is the complete representation of a single column-oriented
 table. Every HDF5 object — group, dataset, named datatype, or link —
 that is a descendant of the table group MUST exist solely in service of
-the table that group defines.
+the data model defined by this revision of HEP001.
 
 For this revision of HEP001, the only objects permitted anywhere in the
 HDF5 hierarchy below a table group are:
@@ -392,24 +392,33 @@ HDF5 hierarchy below a table group are:
   contains, and their accompanying values datasets
   ({ref}`hep001-search-indexes`).
 
-Future revisions of HEP001, and future HEPs that build on it, MAY
-introduce additional kinds of group or dataset below a table group.
-Every such addition MUST exist exclusively to describe, qualify,
-accelerate, or otherwise support the table defined by the enclosing
-table group. A descendant whose semantics are independent of that table
-is not conformant.
+Any descendant of a table group that does not match one of the
+categories above is non-conformant under this revision of HEP001.
+
+This whitelist may be extended by future revisions of HEP001 or by
+future HEPs that build on it; any such extension MUST itself exist
+solely in service of the data model. A producer following this revision
+MUST NOT extend the whitelist at its own discretion.
 
 In particular, a producer MUST NOT place under a table group:
 
 * unrelated tables, including other HEP001 table groups;
 * multidimensional array datasets that are not derived from, or
-  exclusively bound to, the columns of this table.
+  exclusively bound to, the columns of this table;
+* user-defined subgroups for provenance, schema, derived statistics,
+  or any other auxiliary content not enumerated above.
 
 Producers that wish to colocate such content with a table MUST do so by
 placing it as a sibling of the table group, or under an unrelated parent
 group elsewhere in the file. Object references, region references, and
 external links MAY be used to associate the table's columns with that
 external content without violating this rule.
+
+A consumer that encounters a descendant of a table group not described
+by this revision SHOULD emit a diagnostic identifying the offending
+HDF5 path. A consumer operating in strict-conformance mode MAY refuse
+to process the table; a consumer operating in lenient mode MAY ignore
+the offending descendant and continue.
 
 Consumers MAY treat the table group as a closed, self-describing unit:
 copying, moving, renaming, deleting, or versioning the table group is
