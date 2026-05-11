@@ -256,29 +256,33 @@ to the specification and which were chosen by the producer of the data.
 1. Every attribute or group name introduced as part of the HEP001 specification
    MUST be written in fixed-length uppercase ASCII, with underscores as the only
    word separator (for example, `CLASS`, `COLUMN_LIST`, `SEARCH_INDEXES`).
+
 2. Producers MUST NOT use any reserved name listed in
    {ref}`hep001-reserved-names-list` for a column dataset, an index dataset, a
    user-supplied attribute, or any other purpose other than the one this HEP
    assigns to it.
+
 3. Names that HEP001 deliberately shares with other ecosystems, currently
    only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
    exempt from rule 1 and MUST be written exactly as those ecosystems write
    them. They are listed in {ref}`hep001-shared-names`.
-4. Descriptive annotation attributes `units`, `units_vocabulary`, and
-   `description` are also exempt from rule 1 and MUST be written in lowercase.
-   They carry no contractual meaning: their presence, absence, or value does not
-   change how a HEP001 consumer interprets the table or any of its objects. The
-   lowercase form aligns with broader HDF5 community practice, so that generic
-   metadata harvesters and can discover these attributes on a HEP001 table
-   without case-folding. Any future descriptive annotation attribute introduced
-   by this HEP or a successor MUST follow the same lowercase convention. These
-   attributes are defined alongside the objects that may carry them
-   ({ref}`hep001-table-group`, {ref}`hep001-columns`); they do not appear in the
-   reserved-name catalog because they are not part of the HEP001 spec.
+
+4. Several attributes that align with broader scientific HDF5 community
+   practice are exempt from rule 1 and MUST be written in lowercase, so that
+   generic metadata harvesters and existing tools can discover them on a
+   HEP001 table without case-folding.
+
+   The value-domain attributes `valid_min` and `valid_max`, when present on
+   a column dataset, carry contractual meaning: the column's fill value
+   MUST lie strictly outside `[valid_min, valid_max]` (see
+   {numref}`§%s <fill-vals>`). They appear in the reserved-name catalog
+   ({ref}`hep001-reserved-names-list`) despite being lowercase.
+
 5. Per-search-index *tunable* parameters that configure a particular index
    family are not part of the reserved-name contract and are written in
    lowercase `snake_case`. They are documented with the index family that
    defines them ({ref}`hep001-search-indexes`).
+
 6. KIND values (the string contents of the `KIND` attribute) are themselves
    reserved tokens and follow the same uppercase rule as reserved names.
 
@@ -315,6 +319,11 @@ The complete set of HEP001 reserved names is listed below.
 
 `CATEGORIES`
 : Object reference to the categories dataset that backs a categorical column.
+
+`valid_min`, `valid_max` *(lowercase, by exception)*
+: Inclusive lower and upper bounds of the column's logical value range.
+  Each is a scalar attribute whose datatype matches the column's element
+  datatype. See {numref}`§%s <fill-vals>`.
 
 #### Index, search-index, and categories dataset attribute names
 
@@ -592,12 +601,57 @@ filters. Consumers MUST treat each column's storage layout independently.
 (fill-vals)=
 ### Missing values (fill values)
 
-HEP001 does not define a sidecar mask dataset for missing values. A column
-dataset's HDF5 fill value identifies rows whose value is missing. Producers MUST
-set the dataset's fill value explicitly via the dataset creation property list
-(`H5Pset_fill_value`) to a value outside of the column values range. Consumers
-MUST retrieve this value (`H5Dget_fill_value`) to properly identify column's
-missing values.
+A column dataset's HDF5 fill value identifies rows whose value is missing.
+Producers MUST set the dataset's fill value explicitly via the dataset creation
+property list (`H5Pset_fill_value`), placing the dataset into the
+`H5D_FILL_VALUE_USER_DEFINED` state, and MUST choose a fill value that lies
+outside the column's logical value range. A producer MAY declare that range
+explicitly with the two attributes `valid_min` and `valid_max` on the column
+dataset (each a scalar of the column's element datatype). If present, the chosen
+fill value MUST lie strictly outside `[valid_min, valid_max]`. Consumers MUST
+retrieve the fill value (`H5Dget_fill_value`) and identify missing rows with the
+equality test `value == fill_value`. The same applies even to columns that
+contain no missing values — in that case no row will compare equal to the fill
+value, and the column simply has no missing rows.
+
+For producers that have no domain-specific constraint forcing a different
+choice, the table below lists recommended fill values. These values are
+exactly representable in their respective datatypes, far outside any
+plausible data range.
+
+(fill-table)=
+
+| HDF5 datatype | Recommended fill value   | Hex (canonical bit pattern) |
+|---------------|--------------------------|-----------------------------|
+| `int8`        | `-127`                   | `0x81`                      |
+| `int16`       | `-32767`                 | `0x8001`                    |
+| `int32`       | `-2147483647`            | `0x80000001`                |
+| `int64`       | `-9223372036854775807`   | `0x8000000000000001`        |
+| `uint8`       | `255`                    | `0xFF`                      |
+| `uint16`      | `65535`                  | `0xFFFF`                    |
+| `uint32`      | `4294967295`             | `0xFFFFFFFF`                |
+| `uint64`      | `18446744073709551615`   | `0xFFFFFFFFFFFFFFFF`        |
+| `float32`     | `9.9692099683868690e+36` | `0x7CF00000`                |
+| `float64`     | `9.9692099683868690e+36` | `0x479E000000000000`        |
+| fixed string  | `""`                     | n/a                         |
+| vlen string   | `""`                     | n/a                         |
+| enumeration   | `MISSING`                | n/a                         |
+
+The signed-integer sentinels are `INT*_MIN + 1` rather than `INT*_MIN`
+itself, leaving a one-value safety margin against operations that land on
+the type's minimum (e.g., `abs(INT*_MIN)` is undefined behavior in C).
+The unsigned sentinels are the type's maximum.
+
+For datatypes not in the table:
+
+* `float16` is too narrow for a generic sentinel;
+* Boolean (1-bit) datatype cannot represent a missing sentinel
+  alongside their two valid values. Producers MUST widen such columns to
+  `uint8` and use a value greater than `1` (typically `2`).
+
+Producers whose column domain includes any of the recommended sentinels
+above MUST set `valid_min` and/or `valid_max` to declare the column's
+actual range, and MUST choose a fill value outside that declared range.
 
 ```{note}
 This is a conscious divergence from Anndata's nullable-integer and
@@ -609,22 +663,6 @@ values alone.
 ### Column attributes
 
 A column dataset MAY carry any of the following attributes.
-
-`units`
-: Scalar fixed-length UTF-8 string. Physical units of the column's values.
-  Absence of `units` implies dimensionless data. Units are interpreted
-  according to `units_vocabulary` (on the column, or inherited from the
-  table group).
-
-`units_vocabulary`
-: Scalar fixed-length UTF-8 string. Identifies the units vocabulary that
-  interprets `units`. When present on a column, it overrides the table
-  group's `units_vocabulary` for that column. MAY be a short name
-  (`"UDUNITS-2"`) or a URL.
-
-`description`
-: Scalar fixed-length UTF-8 string. Plain-text description of the column's
-  contents, provenance, or semantics.
 
 `INDEX_LIST`
 : One-dimensional array of HDF5 object references. Each reference points
@@ -642,6 +680,26 @@ A column dataset MAY carry any of the following attributes.
 : Scalar HDF5 object reference. Used only for categorical columns. Points
   to the dataset that holds the categorical values (see
   {ref}`hep001-categoricals`).
+
+`units`
+: Scalar fixed-length UTF-8 string. Physical units of the column's values.
+  Absence of `units` implies dimensionless data. Units are interpreted
+  according to `units_vocabulary` (on the column, or inherited from the
+  table group).
+
+`units_vocabulary`
+: Scalar fixed-length UTF-8 string. Identifies the units vocabulary that
+  interprets `units`. When present on a column, it overrides the table
+  group's `units_vocabulary` for that column. MAY be a short name
+  (`"UDUNITS-2"`) or a URL.
+
+`valid_min` / `valid_max`
+: Scalar attributes of the same datatype as the column, specifying the minimum
+and maximum range of the column's values.
+
+`description`
+: Scalar fixed-length UTF-8 string. Plain-text description of the column's
+  contents, provenance, or semantics.
 
 (hep001-categoricals)=
 ### Categorical columns
@@ -1035,18 +1093,23 @@ An Anndata consumer then sees the same group HEP001 sees, down to
 categorical columns that share the `"categorical"` encoding. The
 attributes specific to HEP001 (`CLASS`, `VERSION`, `INDEX_LIST`,
 `SEARCH_INDEX_LIST`, `COLUMN_LIST`, `CATEGORIES`, `VALUES`, `units`,
-`units_vocabulary`) are ignored by Anndata and left intact.
+`units_vocabulary`, `valid_min`, `valid_max`) are ignored by Anndata and
+left intact.
 
 ### Required casing for dual-ecosystem producers
 
 A producer that wants its table groups to be readable by both HEP001 and
 Anndata MUST observe the casing rule {ref}`hep001-reserved-names` defines:
 
-* HEP001-owned reserved names — `CLASS`, `VERSION`, `TITLE`, `KIND`,
-  `INDEX_LIST`, `SEARCH_INDEX_LIST`, `COLUMN_LIST`, `CATEGORIES`,
+* HEP001-owned uppercase reserved names — `CLASS`, `VERSION`, `TITLE`,
+  `KIND`, `INDEX_LIST`, `SEARCH_INDEX_LIST`, `COLUMN_LIST`, `CATEGORIES`,
   `SEARCH_INDEXES`, `VALUES`, plus every `KIND` value (`COLUMN_TABLE`,
   `CHUNK_MINMAX`, `SORTED_ROWS`, `BITMAP`, `CHUNK_BLOOM`) — MUST be written
   in fixed-length ASCII, UPPERCASE.
+* HEP001-owned lowercase reserved attributes — `valid_min`, `valid_max`
+  — MUST be written in lowercase, matching scientific-data convention.
+  They are reserved by HEP001 (not by Anndata), and Anndata leaves them
+  intact.
 * Anndata-shared names — the attribute names `column-order`, `_index`,
   `encoding-type`, `encoding-version`, `ordered`, and the string values
   `"dataframe"` and `"categorical"` — MUST be written in lowercase, exactly
