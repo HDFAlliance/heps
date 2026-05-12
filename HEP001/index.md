@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: May 2026
+date: 2026-05-12
 tags:
   - draft
 keywords:
@@ -162,16 +162,25 @@ Columnar tools and array tools meet in the middle.
 ```{mermaid}
 graph TD
   F[("HDF5 File")]
-  F --> R["/ (root group)"]
-  style R fill:orange
-  R --> T["/events (table group, CLASS=COLUMN_TABLE)"]
-  style T fill:orange
-  R --> I["/images (3-D dataset, detector cube)"]
-  R --> C["/calibration (2-D dataset)"]
-  T --> c1["ts (int64)"]
-  T --> c2["energy (float32)"]
-  T --> c3["pixel_ref (object reference)"]
+  F --> R[["/ (root group)"]]
+  R --> T[["/events (table group, CLASS=COLUMN_TABLE)"]]
+  R --> I[("/images (3-D dataset, detector cube)")]
+  R --> C[("/calibration (2-D dataset)")]
+  T --> c1(["ts (int64)"])
+  T --> c2(["energy (float32)"])
+  T --> c3(["pixel_ref (object reference)"])
   c3 -. "dereferences to slabs of" .-> I
+
+  classDef rootGroup  fill:#F4ECD4,stroke:#B8A468,stroke-width:1.5px,color:#000
+  classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
+  classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef otherData  fill:#EDE5DC,stroke:#A89B8B,stroke-width:1px,color:#000
+
+  class F otherData
+  class R rootGroup
+  class T tableGroup
+  class I,C otherData
+  class c1,c2,c3 dataCol
 ```
 
 ### Scope and non-goals
@@ -253,17 +262,31 @@ the table group's `INDEX_COLUMNS` attribute) and, optionally, a reserved
 
 ```{mermaid}
 graph TD
-  TG["/my_table (table group)<br/>CLASS=COLUMN_TABLE, VERSION=1.0<br/>INDEX_COLUMNS = [row_id]"]
-  TG --> c0["row_id (1-D column dataset,<br/>row index)"]
-  TG --> c1["ts (1-D column dataset)"]
-  TG --> c2["energy (1-D column dataset)"]
-  TG --> c3["label (1-D column dataset,<br/>categorical)"]
-  TG --> c4["label__CATEGORIES (1-D dataset)"]
-  TG --> SI["SEARCH_INDEXES (group)"]
-  SI --> mm["ts__chunk_minmax (1-D compound)"]
-  SI --> sr["energy__sorted_rows (1-D uint64)"]
-  SI --> bm["label__bitmap (1-D compound)"]
-  SI --> bf["ts__chunk_bloom (2-D uint8)"]
+  TG[["/my_table (table group)<br/>CLASS=COLUMN_TABLE, VERSION=1.0<br/>INDEX_COLUMNS = [row_id]"]]
+  TG --> c0(["row_id (1-D column dataset,<br/>row index)"])
+  TG --> c1(["ts (1-D column dataset)"])
+  TG --> c2(["energy (1-D column dataset)"])
+  TG --> c3(["label (1-D column dataset,<br/>categorical)"])
+  TG --> c4[("label__CATEGORIES (1-D dataset)")]
+  TG --> SI[["SEARCH_INDEXES (group)"]]
+  SI --> mm[("ts__chunk_minmax (1-D compound)")]
+  SI --> sr[("energy__sorted_rows (1-D uint64)")]
+  SI --> bm[("label__bitmap (1-D compound)")]
+  SI --> bf[("ts__chunk_bloom (2-D uint8)")]
+
+  classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
+  classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
+  classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef indexCol   fill:#FAD4E1,stroke:#D08FB0,stroke-width:1px,color:#000
+  classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
+  classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
+
+  class TG tableGroup
+  class SI siGroup
+  class c0 indexCol
+  class c1,c2,c3 dataCol
+  class c4 catData
+  class mm,sr,bm,bf siData
 ```
 
 The rest of this document specifies each building block: the table group
@@ -373,18 +396,30 @@ sited beside multidimensional array datasets that they describe.
 ```{mermaid}
 graph TD
   subgraph Flat
-    R1(["/ (root = table group)"])
-    R1 --> c1a["col_a"]
-    R1 --> c1b["col_b"]
-    R1 --> SI1(["SEARCH_INDEXES"])
+    R1[["/ (root = table group)"]]
+    R1 --> c1a(["col_a"])
+    R1 --> c1b(["col_b"])
+    R1 --> SI1[["SEARCH_INDEXES"]]
   end
   subgraph Nested
-    R2(["/ (root)"])
-    R2 --> G1(["/experiments/"])
-    G1 --> T1(["run_042 (table group)"])
-    G1 --> T2(["run_043 (table group)"])
-    R2 --> IMG["/images (3-D dataset)"]
+    R2[["/ (root)"]]
+    R2 --> G1[["/experiments/"]]
+    G1 --> T1[["run_042 (table group)"]]
+    G1 --> T2[["run_043 (table group)"]]
+    R2 --> IMG[("/images (3-D dataset)")]
   end
+
+  classDef rootGroup  fill:#F4ECD4,stroke:#B8A468,stroke-width:1.5px,color:#000
+  classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
+  classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
+  classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef otherData  fill:#EDE5DC,stroke:#A89B8B,stroke-width:1px,color:#000
+
+  class R1,T1,T2 tableGroup
+  class R2,G1 rootGroup
+  class SI1 siGroup
+  class c1a,c1b dataCol
+  class IMG otherData
 ```
 
 (hep001-self-contained)=
@@ -625,9 +660,15 @@ metadata of its linked column rather than as a standalone column.
 
 ```{mermaid}
 graph LR
-  col["label<br/>(int8)<br/>CATEGORIES &rarr; label__CATEGORIES"]
-  cat["label__CATEGORIES<br/>(fixed UTF-8)<br/>encoding‑type=&quot;categorical&quot;<br/>ordered=false"]
+  col(["label<br/>(int8)<br/>CATEGORIES &rarr; label__CATEGORIES"])
+  cat[("label__CATEGORIES<br/>(fixed UTF-8)<br/>encoding‑type=&quot;categorical&quot;<br/>ordered=false")]
   col -- object ref --> cat
+
+  classDef dataCol fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef catData fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
+
+  class col dataCol
+  class cat catData
 ```
 
 (hep001-indexes)=
@@ -665,11 +706,19 @@ and `cell_id` is the innermost row identifier.
 
 ```{mermaid}
 graph TD
-  TG["table group<br/>INDEX_COLUMNS = [donor_id, sample_id]"]
-  TG --> c1["donor_id<br/>(column, outer index level)"]
-  TG --> c2["sample_id<br/>(column, inner index level)"]
-  TG --> c3["energy<br/>(data column)"]
-  TG --> c4["label<br/>(data column)"]
+  TG[["table group<br/>INDEX_COLUMNS = [donor_id, sample_id]"]]
+  TG --> c1(["donor_id<br/>(column, outer index level)"])
+  TG --> c2(["sample_id<br/>(column, inner index level)"])
+  TG --> c3(["energy<br/>(data column)"])
+  TG --> c4(["label<br/>(data column)"])
+
+  classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
+  classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef indexCol   fill:#FAD4E1,stroke:#D08FB0,stroke-width:1px,color:#000
+
+  class TG tableGroup
+  class c1,c2 indexCol
+  class c3,c4 dataCol
 ```
 
 (hep001-search-indexes)=
@@ -701,12 +750,18 @@ search-index dataset.
 
 ```{mermaid}
 graph LR
-  C1["ts (column)<br/>SEARCH_INDEX_LIST &rarr; ts__chunk_minmax"]
-  C2["energy (column)<br/>SEARCH_INDEX_LIST &rarr; energy__sorted_rows"]
-  SI1["ts__chunk_minmax<br/>(in SEARCH_INDEXES)"]
-  SI2["energy__sorted_rows<br/>(in SEARCH_INDEXES)"]
+  C1(["ts (column)<br/>SEARCH_INDEX_LIST &rarr; ts__chunk_minmax"])
+  C2(["energy (column)<br/>SEARCH_INDEX_LIST &rarr; energy__sorted_rows"])
+  SI1[("ts__chunk_minmax<br/>(in SEARCH_INDEXES)")]
+  SI2[("energy__sorted_rows<br/>(in SEARCH_INDEXES)")]
   C1 -->|"object ref"| SI1
   C2 -->|"object ref"| SI2
+
+  classDef dataCol fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef siData  fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
+
+  class C1,C2 dataCol
+  class SI1,SI2 siData
 ```
 
 (common-idx-attrs)=
@@ -1283,23 +1338,39 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
 
 ```{mermaid}
 graph TD
-  TG["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>INDEX_COLUMNS=[row_id]"]
-  TG --> ri["row_id (uint64, row index)"]
-  TG --> ts["ts (int64)"]
-  TG --> en["energy (float32)"]
-  TG --> lb["label (int8, categorical)"]
-  TG --> lc["label__CATEGORIES (vlen UTF-8)"]
-  TG --> SI["SEARCH_INDEXES"]
-  SI --> mm["ts__chunk_minmax<br/>KIND=CHUNK_MINMAX"]
-  SI --> sr["energy__sorted_rows<br/>KIND=SORTED_ROWS"]
-  SI --> bm["label__bitmap<br/>KIND=BITMAP"]
-  SI --> bv["label__bitmap__VALUES"]
-  SI --> bf["ts__chunk_bloom<br/>KIND=CHUNK_BLOOM"]
+  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>INDEX_COLUMNS=[row_id]"]]
+  TG --> ri(["row_id (uint64, row index)"])
+  TG --> ts(["ts (int64)"])
+  TG --> en(["energy (float32)"])
+  TG --> lb(["label (int8, categorical)"])
+  TG --> lc[("label__CATEGORIES (vlen UTF-8)")]
+  TG --> SI[["SEARCH_INDEXES"]]
+  SI --> mm[("ts__chunk_minmax<br/>KIND=CHUNK_MINMAX")]
+  SI --> sr[("energy__sorted_rows<br/>KIND=SORTED_ROWS")]
+  SI --> bm[("label__bitmap<br/>KIND=BITMAP")]
+  SI --> bv[("label__bitmap__VALUES")]
+  SI --> bf[("ts__chunk_bloom<br/>KIND=CHUNK_BLOOM")]
   ts -.->|"SEARCH_INDEX_LIST"| mm
   ts -.->|"SEARCH_INDEX_LIST"| bf
   en -.->|"SEARCH_INDEX_LIST"| sr
   lb -.->|"SEARCH_INDEX_LIST"| bm
   bm -.->|"VALUES"| bv
+
+  classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
+  classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
+  classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef indexCol   fill:#FAD4E1,stroke:#D08FB0,stroke-width:1px,color:#000
+  classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
+  classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
+  classDef siValues   fill:#E8F3E0,stroke:#A8C088,stroke-width:1px,color:#000
+
+  class TG tableGroup
+  class SI siGroup
+  class ri indexCol
+  class ts,en,lb dataCol
+  class lc catData
+  class mm,sr,bm,bf siData
+  class bv siValues
 ```
 
 ## Security considerations
