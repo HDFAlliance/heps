@@ -670,8 +670,9 @@ graph LR
   (e.g. sample IDs) for each row.
 * **Ordinal indexes.** An integer index dataset supplies a globally unique
   row number, useful when joining tables.
-* **Multi-indexes.** Multiple index datasets may co-exist; their order in
-  the column's `INDEX_LIST` attribute expresses their precedence.
+* **Multi-indexes.** A column MAY reference more than one index dataset
+  through `INDEX_LIST` — for example, both sample IDs (variable-length
+  UTF-8) and ordinal row numbers (unsigned integer) for the same rows.
 
 (hep001-search-indexes)=
 ## Search indexes
