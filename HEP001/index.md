@@ -874,8 +874,14 @@ is linked from the bitmap via a scalar `VALUES` object-reference attribute.
 
 * `KIND` — `"BITMAP"`.
 * `VALUES` — scalar HDF5 object reference to the values dataset.
-* `ordered` — scalar boolean; true if the rows of the bitmap follow the
-  ordering of the values.
+* `ordered` — scalar boolean. When `true`, the entries in the values
+  dataset (linked via `VALUES`) are listed in a semantically meaningful
+  order, for example, a numerically-sorted set of distinct values or
+  an ordinal category sequence such as `["low", "medium", "high"]`.
+  The bitmap's `k`-th row corresponds to the `k`-th entry of the values
+  dataset under that order. When `false` or absent, the order of the
+  values dataset is arbitrary (typically insertion order) and consumers
+  MUST NOT infer any semantic ordering from it.
 
 **Applicability:** Exactly one column via `COLUMN_LIST`.
 
