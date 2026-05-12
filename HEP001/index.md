@@ -786,16 +786,57 @@ column.
 source column (typically `uint64`).
 
 **Semantics:** Element `i` of the index is the row position `r` such
-that the `i`-th smallest value of the column lives at row `r`. Ties MUST
+that, under the ordering defined below, the `i`-th rank of the column's
+values lives at row `r`. Ties between rows with identical values MUST
 be broken by increasing `r`, so the permutation is total and
-deterministic. Handling of NaN and fill-value rows:
+deterministic.
 
-* Floating-point columns MUST place NaN-valued rows at the end of the
-  permutation, in increasing `r` order, and MUST set the attribute
-  `nan_tail_length` to the count of such rows.
-* Rows whose value equals the column's fill value ({numref}`§%s <fill-vals>`) MUST appear
-  immediately before the NaN tail, in increasing `r` order, and the
-  attribute `fill_tail_length` MUST record the count.
+**Ordering:** A `SORTED_ROWS` index MUST only be built over a column
+whose HDF5 datatype has a sorting order defined below:
+
+* **Signed and unsigned integers** (any width): standard arithmetic
+  order.
+* **Floating-point values** (`float16`, `float32`, `float64`):
+  IEEE 754 numerical order over finite values and the two infinities.
+  Negative zero MUST compare equal to positive zero. NaN values are
+  not ordered; rows whose value is NaN MUST be placed at the end of
+  the permutation, in increasing `r` order, and the `nan_tail_length`
+  attribute MUST record the count.
+* **Boolean values:** `false` (`0x00`) sorts before `true` (`0x01`).
+* **Fixed- and variable-length strings:** lexicographic comparison
+  over the UTF-8 byte sequence — i.e., **byte-wise**, with no
+  byte-order mark and no Unicode normalization (no NFC, NFD, NFKC, or
+  NFKD conversion is applied). For HDF5 fixed-length strings, trailing
+  NUL padding and the optional NUL terminator MUST be stripped before
+  comparison, so that the same logical string sorts identically
+  whether stored fixed- or variable-length. Strings whose declared
+  HDF5 character set is `H5T_CSET_ASCII` MUST be ordered as if they
+  were UTF-8 (ASCII is a strict subset). HEP001 does **not** specify
+  locale-sensitive collation (e.g., POSIX `strcoll`, ICU UCA);
+  byte-wise comparison is the only conformant rule because it is
+  deterministic across implementations, platforms, and runtime
+  locales.
+* **Opaque (`H5T_OPAQUE`) values:** byte-wise lexicographic comparison
+  over the raw bytes of the value; the opaque tag, if any, is not
+  part of the comparison.
+* **Enum datatypes:** ordered by the underlying integer codes, using
+  the integer rule above.
+
+The following datatypes do not have a defined sorting order, so a
+`SORTED_ROWS` index MUST NOT be built on them:
+
+* HDF5 object and region references (no canonical order over
+  references);
+* compound datatypes (a future HEP MAY register a canonical
+  multi-field ordering);
+* array and variable-length-array datatypes.
+
+Rows whose value equals the column's fill value
+({numref}`§%s <fill-vals>`) MUST appear immediately before the NaN
+tail (if any), in increasing `r` order, and the `fill_tail_length`
+attribute MUST record the count. For datatypes that have no NaN
+concept, the NaN tail is empty (`nan_tail_length = 0`) and the
+fill-tail rows appear at the very end of the permutation.
 
 **Additional attributes:**
 
@@ -805,7 +846,9 @@ deterministic. Handling of NaN and fill-value rows:
 * `ordered` — scalar boolean. MUST be true for `SORTED_ROWS`; reserved
   for future indexes that permit partial orderings.
 
-**Applicability:** Exactly one column via `COLUMN_LIST`.
+**Applicability:** Exactly one column via `COLUMN_LIST`. The column's
+HDF5 datatype MUST have a HEP001-defined order, as enumerated under
+*Ordering* above; otherwise no `SORTED_ROWS` index is permitted.
 
 
 (bitmap)=
