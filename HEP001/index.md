@@ -24,8 +24,9 @@ numbering:
 % Open design points still to resolve:
 %   * Does `column-order` become mandatory when the table has more than one
 %     column, or always optional?
-%   * Should `_index` permit a `/`-delimited path for tables that live under
-%     deep hierarchies, or always be a local name?
+%   * `_index` and `INDEX_COLUMNS` entries are now defined as local column
+%     names within the table group (matching Anndata). Paths into deeper
+%     hierarchies are out of scope; the table group is the resolution scope.
 %   * For the chunk min/max search index of floating-point columns, should
 %     NaN handling be normative (e.g. NaNs never update min/max; a separate
 %     `nan_count` field records them)?
@@ -226,15 +227,16 @@ Column dataset
 : An HDF5 dataset of rank 1 that lives directly under a table group and
   represents one column of the table. The dataset's name is the column name.
 
-Index dataset
-: An HDF5 dataset of rank 1 that lives directly under a table group and
-  supplies row labels for one or more column datasets. Distinguished by the
-  presence of the `COLUMN_LIST` attribute.
+Row index column
+: A column dataset whose name appears in the table group's `INDEX_COLUMNS`
+  attribute and which therefore supplies row labels for the table. Row index
+  columns are otherwise indistinguishable from any other column dataset; the
+  designation is made at the table-group level, not on the column itself.
 
 Row
-: A position `i` in a column dataset. Every column dataset and every index
-  dataset in the same table group MUST have the same length, so the same
-  `i` refers to the same logical row everywhere.
+: A position `i` in a column dataset. Every column dataset in the same
+  table group MUST have the same length, so the same `i` refers to the
+  same logical row everywhere.
 
 Search index dataset
 : An HDF5 dataset stored under the `SEARCH_INDEXES` child group of a table
@@ -245,17 +247,18 @@ Search index dataset
 ## Data model overview
 
 A HEP001 table is an HDF5 **group** whose direct children are the table's
-columns and, optionally, index datasets and a reserved `SEARCH_INDEXES`
-subgroup that holds query-acceleration structures.
+columns (one or more of which MAY be designated as row index columns via
+the table group's `INDEX_COLUMNS` attribute) and, optionally, a reserved
+`SEARCH_INDEXES` subgroup that holds query-acceleration structures.
 
 ```{mermaid}
 graph TD
-  TG["/my_table (table group)<br/>CLASS=COLUMN_TABLE, VERSION=1.0"]
+  TG["/my_table (table group)<br/>CLASS=COLUMN_TABLE, VERSION=1.0<br/>INDEX_COLUMNS = [row_id]"]
+  TG --> c0["row_id (1-D column dataset,<br/>row index)"]
   TG --> c1["ts (1-D column dataset)"]
   TG --> c2["energy (1-D column dataset)"]
   TG --> c3["label (1-D column dataset,<br/>categorical)"]
-  TG --> c4["labelsCATEGORIES (1-D dataset)"]
-  TG --> ix["row_id (1-D index dataset,<br/>COLUMN_LIST &rarr; ts, energy, label)"]
+  TG --> c4["label__CATEGORIES (1-D dataset)"]
   TG --> SI["SEARCH_INDEXES (group)"]
   SI --> mm["ts__chunk_minmax (1-D compound)"]
   SI --> sr["energy__sorted_rows (1-D uint64)"]
@@ -264,9 +267,9 @@ graph TD
 ```
 
 The rest of this document specifies each building block: the table group
-({ref}`hep001-table-group`), column datasets ({ref}`hep001-columns`), index
-datasets ({ref}`hep001-indexes`), and the four kinds of search index dataset
-({ref}`hep001-search-indexes`).
+({ref}`hep001-table-group`), column datasets ({ref}`hep001-columns`), row
+index columns ({ref}`hep001-indexes`), and the four kinds of search-index
+dataset ({ref}`hep001-search-indexes`).
 
 (hep001-table-group)=
 ## The table group
@@ -327,12 +330,23 @@ The table group MAY carry the following attributes.
   write `column-order` whenever a table has more than one column. The
   attribute name uses a hyphen (not an underscore) to match Anndata.
 
+`INDEX_COLUMNS`
+: One-dimensional fixed-length UTF-8 string attribute whose elements are the
+  names of the column datasets that serve as row labels for this table, in
+  hierarchical order from outermost to innermost level. For example, a table
+  indexed by `(donor_id, sample_id, cell_id)` writes `INDEX_COLUMNS =
+  ["donor_id", "sample_id", "cell_id"]`. An empty array or absent attribute
+  means the table has no row labels and rows are positional only. Every name
+  listed MUST resolve to a column dataset that is a direct child of the table
+  group. Row index columns apply to the table as a whole — every column in the
+  table is labeled by them. See {ref}`hep001-indexes`.
+
 `_index`
-: Scalar fixed-length UTF-8 string. The name of the column dataset, or
-  index dataset, that supplies the canonical row labels for this table
-  (for example, `"row_id"`). Matches Anndata's `_index`. Consumers treat
-  `_index` as a hint that a particular dataset under the group is "the"
-  row index.
+: Scalar fixed-length UTF-8 string. The name of the column that supplies
+  the primary row labels for this table (for example, `"row_id"`).
+  Matches Anndata's `_index` exactly. When both `INDEX_COLUMNS` and
+  `_index` are present, `_index` MUST equal `INDEX_COLUMNS[0]`. See
+  {ref}`hep001-anndata`.
 
 `units_vocabulary`
 : Scalar fixed-length UTF-8 string. Names the vocabulary or authority that
@@ -384,8 +398,9 @@ the data model defined by this revision of HEP001.
 For this revision of HEP001, the only objects permitted anywhere in the
 HDF5 hierarchy below a table group are:
 
-* column datasets ({ref}`hep001-columns`);
-* index datasets ({ref}`hep001-indexes`);
+* column datasets ({ref}`hep001-columns`), including those designated
+  as row index columns by the table group's `INDEX_COLUMNS` attribute
+  ({ref}`hep001-indexes`);
 * categories datasets backing categorical columns
   ({ref}`hep001-categoricals`);
 * the reserved `SEARCH_INDEXES` subgroup, the search-index datasets it
@@ -442,8 +457,8 @@ Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
 
 * is a direct child of the table group,
 * has rank 1 shape,
-* has the same length (number of elements) as every other column dataset and
-  index dataset in the same table group.
+* has the same length (number of elements) as every other column dataset
+  in the same table group.
 
 The {ref}` name <hep001-dset-name>` of the HDF5 dataset is the column name. Any
 name acceptable as an HDF5 link name (UTF-8, excluding `/` and NUL) is
@@ -548,13 +563,6 @@ values alone.
 
 A column dataset MAY carry any of the following attributes.
 
-`INDEX_LIST`
-: One-dimensional array of HDF5 object references. Each reference points
-  to an index dataset (see {ref}`hep001-indexes`) that labels the rows of
-  this column. The order of references is meaningful — consumers MAY
-  interpret the first reference as the primary label source and subsequent
-  references as alternative labels.
-
 `SEARCH_INDEX_LIST`
 : One-dimensional array of HDF5 object references. Each reference points
   to a search-index dataset (see {ref}`hep001-search-indexes`) in the
@@ -623,56 +631,46 @@ graph LR
 ```
 
 (hep001-indexes)=
-## Index datasets
+## Row index columns
 
-An index dataset supplies row labels for one or more columns. A table
-group MAY carry zero or more index datasets as direct children.
+A **row index column** is a column dataset whose name appears in the table
+group's `INDEX_COLUMNS` attribute (see {ref}`hep001-table-group`). Row index
+columns supply row labels for the table as a whole — every column in the table
+is labeled by every row index column. They are ordinary column datasets in every
+other respect: same shape, same length, same datatype freedom, same chunking and
+filter flexibility, and they SHOULD also appear in `column-order` like any other
+column.
 
-### Required properties
+### Hierarchy
 
-An index dataset MUST:
-
-* be a direct child of the table group,
-* have rank 1,
-* have the same length as every column dataset and every other index
-  dataset in the same table group,
-* carry an attribute named `COLUMN_LIST` of rank 1 and datatype HDF5
-  object reference, whose elements are references to the column datasets
-  it labels.
-
-A dataset MAY simultaneously be a column dataset and an index dataset:
-that is, it MAY appear in the `column-order` attribute and also carry
-`COLUMN_LIST`. This matches Anndata, where the dataset named by
-`_index` is typically also a regular column.
-
-### Linking columns to their indexes
-
-Each column dataset that wishes to be labeled by an index MUST carry an
-`INDEX_LIST` attribute — a 1-D array of object references pointing to its
-index datasets. The relationship is bidirectional and MUST be consistent:
-if index `I` references column `C` via its `COLUMN_LIST`, then `C` MUST
-reference `I` via its `INDEX_LIST`, and vice versa.
-
-```{mermaid}
-graph LR
-  IX["row_id (index dataset)<br/>COLUMN_LIST &rarr; ts, energy"]
-  C1["ts (column)<br/>INDEX_LIST &rarr; row_id"]
-  C2["energy (column)<br/>INDEX_LIST &rarr; row_id"]
-  IX -->|"COLUMN_LIST"| C1
-  IX -->|"COLUMN_LIST"| C2
-  C1 -->|"INDEX_LIST"| IX
-  C2 -->|"INDEX_LIST"| IX
-```
+When `INDEX_COLUMNS` contains more than one name, the order is the
+row-label hierarchy from outermost to innermost level. For example,
+`INDEX_COLUMNS = ["donor_id", "sample_id", "cell_id"]` declares a
+three-level row index in which `donor_id` is the outermost grouping
+and `cell_id` is the innermost row identifier.
 
 ### Typical uses
 
-* **Row labels.** A string index dataset supplies user-meaningful names
-  (e.g. sample IDs) for each row.
-* **Ordinal indexes.** An integer index dataset supplies a globally unique
-  row number, useful when joining tables.
-* **Multi-indexes.** A column MAY reference more than one index dataset
-  through `INDEX_LIST` — for example, both sample IDs (variable-length
-  UTF-8) and ordinal row numbers (unsigned integer) for the same rows.
+* **Single row index.** The common case: one column (often a string
+  of sample IDs, or an unsigned-integer ordinal) supplies row labels
+  for the entire table.
+* **Hierarchical row index.** A small number of tables have a
+  meaningful row-label hierarchy — for example, donor → sample → cell
+  in single-cell genomics, or year → quarter → ticker in financial
+  time series. `INDEX_COLUMNS` lists the level columns in order.
+* **No row index.** A table whose rows are positional only (e.g., an
+  append-only log identified by position) MAY omit `INDEX_COLUMNS` or
+  set it to an empty array. Consumers MUST treat the table as having
+  positional row identifiers in that case.
+
+```{mermaid}
+graph TD
+  TG["table group<br/>INDEX_COLUMNS = [donor_id, sample_id]"]
+  TG --> c1["donor_id<br/>(column, outer index level)"]
+  TG --> c2["sample_id<br/>(column, inner index level)"]
+  TG --> c3["energy<br/>(data column)"]
+  TG --> c4["label<br/>(data column)"]
+```
 
 (hep001-search-indexes)=
 ## Search indexes
@@ -689,14 +687,27 @@ present, it MUST hold every search-index dataset for the table, and no other
 objects. It carries no required attributes of its own. Search-index datasets in
 `SEARCH_INDEXES` MAY have any name.
 
-### Bidirectional linking
+### Linking columns to search indexes
 
-Each search-index dataset MUST carry an attribute `COLUMN_LIST` — a 1-D
-array of HDF5 object references to every column dataset it accelerates.
-Conversely, each column dataset that benefits from a search index MUST
-reference it from its own `SEARCH_INDEX_LIST` attribute. The two sides MUST
-stay consistent in the same sense as for index datasets
-({ref}`hep001-indexes`).
+Each column dataset that benefits from a search index MUST reference
+that search index from its own `SEARCH_INDEX_LIST` attribute — a 1-D
+array of HDF5 object references to search-index datasets in the
+`SEARCH_INDEXES` subgroup. The column-side attribute is the only
+linkage; search-index datasets do not carry a back-pointer to the
+columns they accelerate. To determine the column that a given
+search-index dataset applies to, scan the column datasets of the table
+group and identify the one whose `SEARCH_INDEX_LIST` references that
+search-index dataset.
+
+```{mermaid}
+graph LR
+  C1["ts (column)<br/>SEARCH_INDEX_LIST &rarr; ts__chunk_minmax"]
+  C2["energy (column)<br/>SEARCH_INDEX_LIST &rarr; energy__sorted_rows"]
+  SI1["ts__chunk_minmax<br/>(in SEARCH_INDEXES)"]
+  SI2["energy__sorted_rows<br/>(in SEARCH_INDEXES)"]
+  C1 -->|"object ref"| SI1
+  C2 -->|"object ref"| SI2
+```
 
 (common-idx-attrs)=
 ### Common per-index attributes
@@ -722,8 +733,8 @@ A chunk min/max index accelerates range and equality predicates over a
 numeric column by letting the engine skip chunks whose value range does
 not overlap the predicate.
 
-**Shape:** The index dataset is 1-D with length equal to the number of chunks in
-the source column dataset:
+**Shape:** The search-index dataset is 1-D with length equal to the number of
+chunks in the source column dataset:
 
 * `ceil(column_length / chunk_length)` for a chunked column,
 * `1` for a contiguous column.
@@ -748,13 +759,13 @@ integer and other orderable types, `min` and `max` are the ordinary
 ordering extrema over the chunk's values, treating fill-value elements
 as missing (and excluded from the ordering) when `fill_count > 0`.
 
-**Applicability:** A `CHUNK_MINMAX` index MUST link to exactly one column
-dataset via `COLUMN_LIST`. A producer MAY build separate
-`CHUNK_MINMAX` indexes for several columns, but a single dataset MUST
-NOT cover multiple columns because chunks of different columns are
-independent.
+**Applicability:** Each `CHUNK_MINMAX` search-index dataset applies to
+exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
+references it. A producer MAY build separate `CHUNK_MINMAX` indexes
+for several columns, but a single search-index dataset MUST NOT cover
+multiple columns because chunks of different columns are independent.
 
-**Additional attributes on the index dataset:**
+**Additional attributes on the search-index dataset:**
 
 * `KIND` — `"CHUNK_MINMAX"` (see {numref}`§%s <common-idx-attrs>`).
 
@@ -847,9 +858,11 @@ fill-tail rows appear at the very end of the permutation.
 * `ordered` — scalar boolean. MUST be true for `SORTED_ROWS`; reserved
   for future indexes that permit partial orderings.
 
-**Applicability:** Exactly one column via `COLUMN_LIST`. The column's
-HDF5 datatype MUST have a HEP001-defined order, as enumerated under
-*Ordering* above; otherwise no `SORTED_ROWS` index is permitted.
+**Applicability:** Each `SORTED_ROWS` search-index dataset applies to
+exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
+references it. The column's HDF5 datatype MUST have a HEP001-defined
+order, as enumerated under *Ordering* above; otherwise no
+`SORTED_ROWS` index is permitted.
 
 
 (bitmap)=
@@ -884,7 +897,9 @@ is linked from the bitmap via a scalar `VALUES` object-reference attribute.
   values dataset is arbitrary (typically insertion order) and consumers
   MUST NOT infer any semantic ordering from it.
 
-**Applicability:** Exactly one column via `COLUMN_LIST`.
+**Applicability:** Each `BITMAP` search-index dataset applies to
+exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
+references it.
 
 
 (bloom)=
@@ -971,10 +986,11 @@ query value identically before testing the filter.
   inputs; consumers MUST read the seed from this attribute rather than
   assuming `0`.
 
-**Applicability:** Exactly one column via `COLUMN_LIST`. The column's
-HDF5 datatype MUST belong to one of the kinds enumerated under
-*Canonical byte representation*; otherwise no `CHUNK_BLOOM` index is
-permitted.
+**Applicability:** Each `CHUNK_BLOOM` search-index dataset applies to
+exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
+references it. The column's HDF5 datatype MUST belong to one of the
+kinds enumerated under *Canonical byte representation*; otherwise no
+`CHUNK_BLOOM` index is permitted.
 
 ```{note}
 Bloom-filter interoperability requires producers and consumers to agree
@@ -987,20 +1003,22 @@ the canonical encoding; a future revision MAY register alternative
 
 A conformant table group satisfies all of the following at all times:
 
-1. Every column dataset, every index dataset, and every sub-dataset whose
-   semantics require row alignment MUST have the same length.
-2. For every `INDEX_LIST` reference on a column, the target index dataset
-   MUST reference that column in `COLUMN_LIST`, and vice versa.
-3. For every `SEARCH_INDEX_LIST` reference on a column, the target
-   search-index dataset MUST reference that column in `COLUMN_LIST`,
-   and vice versa.
-4. Every dataset in the `SEARCH_INDEXES` subgroup MUST carry a `KIND`
+1. Every column dataset (including row index columns) in the same table
+   group MUST have the same length.
+2. Every dataset in the `SEARCH_INDEXES` subgroup MUST carry a `KIND`
    attribute defined by this HEP (or a future, registered HEP).
-5. Every categorical column's `CATEGORIES` reference MUST resolve to a
+3. Every reference in a column's `SEARCH_INDEX_LIST` MUST resolve to a
+   search-index dataset under the table group's `SEARCH_INDEXES`
+   subgroup.
+4. Every categorical column's `CATEGORIES` reference MUST resolve to a
    dataset satisfying {numref}`§%s <hep001-categoricals>`.
-6. `column-order`, when present, MUST list every column dataset of the
+5. `column-order`, when present, MUST list every column dataset of the
    table exactly once and MUST NOT list datasets that are not column
    datasets.
+6. Every name listed in the table group's `INDEX_COLUMNS` attribute
+   (when present) MUST resolve to a column dataset that is a direct
+   child of the table group; when `_index` is also present, it MUST
+   equal `INDEX_COLUMNS[0]`.
 
 A producer that mutates a table (appends rows, rewrites a column, etc.)
 MUST either update the affected search indexes consistently or delete
@@ -1025,10 +1043,20 @@ DataFrame by additionally setting on the table group:
 
 An Anndata consumer then sees the same group HEP001 sees, down to
 categorical columns that share the `"categorical"` encoding. The
-attributes specific to HEP001 (`CLASS`, `VERSION`, `INDEX_LIST`,
-`SEARCH_INDEX_LIST`, `COLUMN_LIST`, `CATEGORIES`, `VALUES`, `units`,
-`units_vocabulary`, `valid_min`, `valid_max`) are ignored by Anndata and
-left intact.
+attributes specific to HEP001 (`CLASS`, `VERSION`, `INDEX_COLUMNS`,
+`SEARCH_INDEX_LIST`, `CATEGORIES`, `VALUES`, `units`,
+`units_vocabulary`, `valid_min`, `valid_max`) are ignored by Anndata
+and left intact.
+
+`_index` and `INDEX_COLUMNS` carry the same row-label concept in
+different shapes: Anndata's `_index` is a scalar string naming one
+column; HEP001's `INDEX_COLUMNS` is a 1-D string array supporting
+hierarchical row indexes. Producers that target both ecosystems
+SHOULD write both, with `_index` set equal to `INDEX_COLUMNS[0]` (the
+outermost index level). Anndata consumers see only the primary row
+index; HEP001 consumers see the full hierarchy. When a table has no
+row labels at all, both attributes are omitted (or `INDEX_COLUMNS` is
+an empty array).
 
 Producers targeting both ecosystems SHOULD set the fill value of a
 categorical column to `-1` (for signed codes) or the maximum unsigned
@@ -1043,7 +1071,7 @@ A producer that wants its table groups to be readable by both HEP001 and
 Anndata MUST observe the casing rule {ref}`hep001-reserved-names` defines:
 
 * HEP001-owned uppercase reserved names — `CLASS`, `VERSION`, `TITLE`,
-  `KIND`, `INDEX_LIST`, `SEARCH_INDEX_LIST`, `COLUMN_LIST`, `CATEGORIES`,
+  `KIND`, `INDEX_COLUMNS`, `SEARCH_INDEX_LIST`, `CATEGORIES`,
   `SEARCH_INDEXES`, `VALUES`, plus every `KIND` value (`COLUMN_TABLE`,
   `CHUNK_MINMAX`, `SORTED_ROWS`, `BITMAP`, `CHUNK_BLOOM`) — MUST be written
   in fixed-length ASCII, UPPERCASE.
@@ -1090,12 +1118,12 @@ to the specification and which were chosen by the producer of the data.
 
 1. Every attribute or group name introduced as part of the HEP001 specification
    MUST be written in fixed-length uppercase ASCII, with underscores as the only
-   word separator (for example, `CLASS`, `COLUMN_LIST`, `SEARCH_INDEXES`).
+   word separator (for example, `CLASS`, `INDEX_COLUMNS`, `SEARCH_INDEXES`).
 
 2. Producers MUST NOT use any reserved name listed in
-   {ref}`hep001-reserved-names-list` for a column dataset, an index dataset, a
-   user-supplied attribute, or any other purpose other than the one this HEP
-   assigns to it.
+   {ref}`hep001-reserved-names-list` for a column dataset, a search-index
+   dataset, a user-supplied attribute, or any other purpose other than the
+   one this HEP assigns to it.
 
 3. Names that HEP001 deliberately shares with other ecosystems, currently
    only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
@@ -1143,10 +1171,12 @@ The complete set of HEP001 reserved names is listed below.
 `TITLE`
 : Human-readable title of the table (optional).
 
-#### Column dataset attribute names
+`INDEX_COLUMNS`
+: 1-D fixed-length UTF-8 string array. Names of the column datasets that
+  serve as row labels for the table, in hierarchical order from outermost
+  to innermost level. See {ref}`hep001-indexes`.
 
-`INDEX_LIST`
-: Object references to the index datasets that label this column.
+#### Column dataset attribute names
 
 `SEARCH_INDEX_LIST`
 : Object references to the search-index datasets that accelerate queries on
@@ -1160,11 +1190,7 @@ The complete set of HEP001 reserved names is listed below.
   Each is a scalar attribute whose datatype matches the column's element
   datatype. See {numref}`§%s <fill-vals>`.
 
-#### Index, search-index, and categories dataset attribute names
-
-`COLUMN_LIST`
-: Object references to the column datasets that an index dataset or
-  search-index dataset applies to.
+#### Search-index and categories dataset attribute names
 
 `KIND`
 : ASCII enum that identifies the family of a search-index dataset.
@@ -1205,38 +1231,36 @@ names, but if it writes them at all it MUST write them in this exact form
 (min-example-table)=
 ### A minimal table
 
-A table of three columns (`ts`, `energy`, `label`), a row index
-(`row_id`), and no search indexes.
+A table of four columns — `row_id` (the row index), `ts`, `energy`, `label` —
+and no search indexes.
 
 ```
 /my_table                          (Group)
   CLASS             = "COLUMN_TABLE"   (ASCII, fixed length)
   VERSION           = "1.0"            (ASCII, fixed length)
   TITLE             = "Sample run"     (UTF-8)
-  column-order      = ["ts", "energy", "label"]  (UTF-8, 1-D)
-  _index            = "row_id"         (UTF-8)
+  column-order      = ["row_id", "ts", "energy", "label"]  (UTF-8, 1-D)
+  INDEX_COLUMNS     = ["row_id"]       (UTF-8, 1-D)
+  _index            = "row_id"         (UTF-8; Anndata interop)
+
+/my_table/row_id                   (Dataset, uint64, shape (N,))
+  description       = "Globally unique event identifier."
 
 /my_table/ts                       (Dataset, int64, shape (N,))
   units             = "s"
   units_vocabulary  = "UDUNITS-2"
   description       = "Event timestamp."
-  INDEX_LIST        = [ref(row_id)]
 
 /my_table/energy                   (Dataset, float32, shape (N,))
   units             = "MeV"
-  INDEX_LIST        = [ref(row_id)]
 
 /my_table/label                    (Dataset, int8, shape (N,))
   description       = "Class label."
   CATEGORIES        = ref(label__CATEGORIES)
-  INDEX_LIST        = [ref(row_id)]
 
 /my_table/label__CATEGORIES        (Dataset, vlen UTF-8, shape (3,))
   encoding-type     = "categorical"
   ordered           = false
-
-/my_table/row_id                   (Dataset, uint64, shape (N,))
-  COLUMN_LIST       = [ref(ts), ref(energy), ref(label)]
 ```
 
 ### Adding a chunk min/max search index
@@ -1253,33 +1277,29 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
     compound {min: int64, max: int64, nan_count: uint64,
               fill_count: uint64, n: uint64}, shape (n_chunks,))
   KIND          = "CHUNK_MINMAX"
-  COLUMN_LIST   = [ref(/my_table/ts)]
 ```
 
 ### A complete layout
 
 ```{mermaid}
 graph TD
-  TG["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0"]
+  TG["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>INDEX_COLUMNS=[row_id]"]
+  TG --> ri["row_id (uint64, row index)"]
   TG --> ts["ts (int64)"]
   TG --> en["energy (float32)"]
   TG --> lb["label (int8, categorical)"]
   TG --> lc["label__CATEGORIES (vlen UTF-8)"]
-  TG --> ri["row_id (uint64, index)"]
   TG --> SI["SEARCH_INDEXES"]
   SI --> mm["ts__chunk_minmax<br/>KIND=CHUNK_MINMAX"]
   SI --> sr["energy__sorted_rows<br/>KIND=SORTED_ROWS"]
   SI --> bm["label__bitmap<br/>KIND=BITMAP"]
   SI --> bv["label__bitmap__VALUES"]
   SI --> bf["ts__chunk_bloom<br/>KIND=CHUNK_BLOOM"]
-  ts -.-> mm
-  ts -.-> bf
-  en -.-> sr
-  lb -.-> bm
-  bm -.-> bv
-  ri -.-> ts
-  ri -.-> en
-  ri -.-> lb
+  ts -.->|"SEARCH_INDEX_LIST"| mm
+  ts -.->|"SEARCH_INDEX_LIST"| bf
+  en -.->|"SEARCH_INDEX_LIST"| sr
+  lb -.->|"SEARCH_INDEX_LIST"| bm
+  bm -.->|"VALUES"| bv
 ```
 
 ## Security considerations
