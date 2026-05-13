@@ -505,7 +505,7 @@ Anndata-aligned attribute names (`_index`) and may be claimed by future HEPs.
 ### Datatypes
 
 The datatype of a column dataset MAY be any HDF5 datatype. Consumers that
-encounter a datatype they do not recognize SHOULD show the column's raw datatype
+encounter a datatype they do not recognize SHOULD expose the column's raw datatype
 instead of quietly ignoring it.
 
 Two caveats apply:
@@ -678,8 +678,7 @@ A **row index column** is a column dataset whose name appears in the table
 group's `INDEX_COLUMNS` attribute (see {ref}`hep001-table-group`). Row index
 columns supply row labels for the table as a whole — every column in the table
 is labeled by every row index column. They are ordinary column datasets in every
-other respect: same shape, same length, same datatype freedom, same chunking and
-filter flexibility, and they SHOULD also appear in `column-order` like any other
+other respect, and they SHOULD also appear in `column-order` like any other
 column.
 
 ### Hierarchy
@@ -1229,9 +1228,9 @@ The complete set of HEP001 reserved names is listed below.
 : Human-readable title of the table (optional).
 
 `INDEX_COLUMNS`
-: 1-D fixed-length UTF-8 string array. Names of the column datasets that
-  serve as row labels for the table, in hierarchical order from outermost
-  to innermost level. See {ref}`hep001-indexes`.
+: A 1-D array attribute of fixed-length UTF-8 strings, whose elements are names
+  of the column datasets that serve as row labels for the table, in hierarchical
+  order from outermost to innermost level. See {ref}`hep001-indexes`.
 
 #### Column dataset attribute names
 
