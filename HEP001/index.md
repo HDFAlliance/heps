@@ -548,6 +548,13 @@ equality test `value == fill_value`. The same applies even to columns that
 contain no missing values — in that case no row will compare equal to the fill
 value, and the column simply has no missing rows.
 
+A column's fill value MUST NOT be a `NaN` bit pattern. IEEE 754 specifies that
+`NaN != NaN`, so the equality test `value == fill_value` would always return
+false against a `NaN` fill and consumers would identify zero rows as missing
+regardless of the data. Producers needing a sentinel for a floating-point
+column MUST use a non-`NaN`, non-infinite value — for example, the recommended
+`9.9692099683868690e+36` from {numref}`§%s <fill-table>` below.
+
 For producers that have no domain-specific constraint forcing a different
 choice, the table below lists recommended fill values. These values are
 exactly representable in their respective datatypes, far outside any
@@ -864,10 +871,13 @@ whose HDF5 datatype has a sorting order defined below:
   order.
 * **Floating-point values** (`float16`, `float32`, `float64`):
   IEEE 754 numerical order over finite values and the two infinities.
-  Negative zero MUST compare equal to positive zero. NaN values are
-  not ordered; rows whose value is NaN MUST be placed at the end of
+  Negative zero MUST compare equal to positive zero. `NaN` values are
+  not ordered; rows whose value is `NaN` MUST be placed at the end of
   the permutation, in increasing `r` order, and the `nan_tail_length`
-  attribute MUST record the count.
+  attribute MUST record the count. The `NaN` tail and the fill tail
+  are disjoint: {numref}`§%s <fill-vals>` forbids `NaN` as a fill value,
+  so no row can simultaneously satisfy "value is NaN" and
+  "value equals fill."
 * **Boolean values:** `false` (`0x00`) sorts before `true` (`0x01`).
 * **Fixed- and variable-length strings:** lexicographic comparison
   over the UTF-8 byte sequence — i.e., **byte-wise**, with no
@@ -1118,6 +1128,15 @@ value (for unsigned codes), overriding the default sentinel from
 {numref}`§%s <fill-table>`, so that Anndata's pandas-derived missingness
 convention is honored. The `valid_min` and `valid_max` attributes declare
 the actual code range for HEP001 consumers.
+
+Anndata producers commonly use a `NaN` bit pattern as the fill value for
+floating-point columns (inherited from pandas' missing-value convention).
+HEP001 forbids `NaN` as a fill value (see {numref}`§%s <fill-vals>`)
+because IEEE 754 makes `NaN != NaN` and the spec's required equality
+test would never detect any missing rows. Producers importing
+float columns from Anndata MUST re-fill-value such columns to a
+non-`NaN` sentinel (e.g., the recommended `9.9692099683868690e+36`)
+before the column is HEP001-conformant.
 
 ### Required casing for dual-ecosystem producers
 
