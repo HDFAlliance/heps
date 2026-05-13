@@ -879,19 +879,18 @@ whose HDF5 datatype has a sorting order defined below:
   so no row can simultaneously satisfy "value is NaN" and
   "value equals fill."
 * **Boolean values:** `false` (`0x00`) sorts before `true` (`0x01`).
-* **Fixed- and variable-length strings:** lexicographic comparison
-  over the UTF-8 byte sequence — i.e., **byte-wise**, with no
-  byte-order mark and no Unicode normalization (no NFC, NFD, NFKC, or
-  NFKD conversion is applied). For HDF5 fixed-length strings, trailing
-  NUL padding and the optional NUL terminator MUST be stripped before
-  comparison, so that the same logical string sorts identically
-  whether stored fixed- or variable-length. Strings whose declared
-  HDF5 character set is `H5T_CSET_ASCII` MUST be ordered as if they
-  were UTF-8 (ASCII is a strict subset). HEP001 does **not** specify
-  locale-sensitive collation (e.g., POSIX `strcoll`, ICU UCA);
-  byte-wise comparison is the only conformant rule because it is
-  deterministic across implementations, platforms, and runtime
-  locales.
+* **Fixed- and variable-length strings:** lexicographic comparison over the
+  UTF-8 byte sequence — i.e., **byte-wise**, with no byte-order mark and no
+  Unicode normalization (no NFC, NFD, NFKC, or NFKD conversion is applied). For
+  HDF5 fixed-length strings, the column's storage-padding bytes — NUL bytes
+  (`0x00`) for `H5T_STR_NULLTERM` and `H5T_STR_NULLPAD`, space bytes (`0x20`)
+  for `H5T_STR_SPACEPAD` — MUST be stripped from the trailing end of each string
+  before comparison, so that the same logical string sorts identically whether
+  stored fixed- or variable-length. Strings whose declared HDF5 character set is
+  `H5T_CSET_ASCII` MUST be ordered as if they were UTF-8 (ASCII is a strict
+  subset). HEP001 does **not** specify locale-sensitive collation (e.g., POSIX
+  `strcoll`, ICU UCA); byte-wise comparison is the only conformant rule because
+  it is deterministic across implementations, platforms, and runtime locales.
 * **Opaque (`H5T_OPAQUE`) values:** byte-wise lexicographic comparison
   over the raw bytes of the value; the opaque tag, if any, is not
   part of the comparison.
@@ -1019,13 +1018,14 @@ query value identically before testing the filter.
   a `CHUNK_BLOOM` index. Producers MUST normalize negative zero to
   positive zero before hashing.
 * **Boolean values:** a single byte, `0x00` for false or `0x01` for true.
-* **Fixed- and variable-length strings:** the string's **UTF-8** byte
-  sequence, with **no byte-order mark** and **no Unicode normalization**
-  (no NFC, NFD, NFKC, or NFKD conversion is applied). For HDF5
-  fixed-length strings, trailing NUL padding and the optional NUL
-  terminator MUST be stripped before hashing, so that the same logical
-  string hashes identically whether stored fixed- or variable-length.
-  Strings whose declared HDF5 character set is `H5T_CSET_ASCII` MUST be
+* **Fixed- and variable-length strings:** the string's **UTF-8** byte sequence,
+  with **no byte-order mark** and **no Unicode normalization** (no NFC, NFD,
+  NFKC, or NFKD conversion is applied). For HDF5 fixed-length strings, the
+  column's storage-padding bytes — NUL bytes (`0x00`) for `H5T_STR_NULLTERM` and
+  `H5T_STR_NULLPAD`, space bytes (`0x20`) for `H5T_STR_SPACEPAD` — MUST be
+  stripped from the trailing end of each string before hashing, so that the same
+  logical string hashes identically regardless of the column's declared padding
+  mode. Strings whose declared HDF5 character set is `H5T_CSET_ASCII` MUST be
   hashed as if they were UTF-8 (ASCII is a strict subset).
 * **Opaque (`H5T_OPAQUE`) values:** the raw bytes of the value in column
   order; the opaque tag, if any, is not part of the hashed bytes.
