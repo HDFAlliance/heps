@@ -1196,10 +1196,12 @@ to the specification and which were chosen by the producer of the data.
    {numref}`§%s <fill-vals>`). They appear in the reserved-name catalog
    ({ref}`hep001-reserved-names-list`) despite being lowercase.
 
-5. Per-search-index *tunable* parameters that configure a particular index
-   family are not part of the reserved-name contract and are written in
-   lowercase `snake_case`. They are documented with the index family that
-   defines them ({ref}`hep001-search-indexes`).
+5. Per-search-index attributes that are private to a specific search-index
+   family — including configuration parameters, declarations of the
+   algorithm used, and computed output metrics — are not part of the
+   reserved name contract and are written in lowercase `snake_case`. They
+   are documented with the index family that defines them
+   ({ref}`hep001-search-indexes`).
 
 6. KIND values (the string contents of the `KIND` attribute) are themselves
    reserved tokens and follow the same uppercase rule as reserved names.
