@@ -302,8 +302,8 @@ dataset ({ref}`hep001-search-indexes`).
 
 Every HEP001 table group MUST carry an attribute named `CLASS` with:
 
-* datatype: null-terminated or null-padded fixed-length ASCII string, 12 bytes
-  (exactly the length of the value below),
+* datatype: null-terminated 13-bytes fixed-length ASCII string
+  (exactly the length of the value below plus a NUL byte),
 * shape: scalar,
 * value: `COLUMN_TABLE`.
 
