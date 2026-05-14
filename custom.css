@@ -70,3 +70,32 @@ th,
 .numeric {
   font-variant-numeric: tabular-nums lining-nums;
 }
+
+/* ---------- Mermaid diagrams ----------
+ * mystmd renders Mermaid client-side. By default mermaid.js sets inline
+ * width/height attributes on the produced <svg>, which often leave the
+ * diagram much smaller than the surrounding column. These rules force
+ * the SVG to fill the available column width, let its height scale
+ * proportionally, and impose a minimum height so simple diagrams are
+ * not squashed.
+ *
+ * The book-theme does not (yet) expose a JS-injection hook, so we
+ * cannot wire up click-to-zoom from here; the rules below are
+ * CSS-only. See also issue:
+ *   https://github.com/jupyter-book/myst-theme/issues/437
+ */
+figure[class*="mermaid"],
+.myst-mermaid {
+  max-width: 100%;
+  margin: 1.5rem auto;
+}
+
+figure[class*="mermaid"] svg,
+.myst-mermaid svg,
+svg[id^="mermaid-svg"] {
+  width: 100% !important;
+  height: auto !important;
+  max-width: none !important;
+  min-height: 360px;
+  display: block;
+}
