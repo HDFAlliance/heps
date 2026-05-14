@@ -329,19 +329,6 @@ The table group MAY carry the following attributes.
 : Scalar fixed-length UTF-8 string. Human-readable title of the table,
   mirroring HDF5 Table and PyTables. Purely descriptive.
 
-`description`
-: Scalar fixed-length UTF-8 string. Free-text description of the table's
-  contents. Longer and richer than `TITLE`; intended for documentation
-  viewers.
-
-`column-order`
-: One-dimensional fixed-length UTF-8 string attribute whose elements are
-  the names of the column datasets in their logical order. When present,
-  it fully determines the column order presented to users; when absent,
-  the logical column order is implementation-defined. Producers SHOULD
-  write `column-order` whenever a table has more than one column. The
-  attribute name uses a hyphen (not an underscore) to match Anndata.
-
 `INDEX_COLUMNS`
 : One-dimensional fixed-length UTF-8 string attribute whose elements are the
   names of the column datasets that serve as row labels for this table, in
@@ -353,6 +340,14 @@ The table group MAY carry the following attributes.
   group. Row index columns apply to the table as a whole — every column in the
   table is labeled by them. See {ref}`hep001-indexes`.
 
+`column-order`
+: One-dimensional fixed-length UTF-8 string attribute whose elements are
+  the names of the column datasets in their logical order. When present,
+  it fully determines the column order presented to users; when absent,
+  the logical column order is implementation-defined. Producers SHOULD
+  write `column-order` whenever a table has more than one column. The
+  attribute name uses a hyphen (not an underscore) to match Anndata.
+
 `_index`
 : Scalar fixed-length UTF-8 string. The name of the column that supplies
   the primary row labels for this table (for example, `"row_id"`).
@@ -360,18 +355,25 @@ The table group MAY carry the following attributes.
   `_index` are present, `_index` MUST equal `INDEX_COLUMNS[0]`. See
   {ref}`hep001-anndata`.
 
+`encoding-type`
+: Scalar fixed-length UTF-8 string. Optional. When set to `"dataframe"`
+  (and `encoding-version` to `"0.2.0"` or another value the producer
+  chooses), it advertises the table group as an Anndata DataFrame so that
+  Anndata readers can consume it. The same attribute name also appears
+  on categories datasets with value `"categorical"` (see
+  {ref}`hep001-categoricals` and {ref}`hep001-anndata`).
+
+`description`
+: Scalar fixed-length UTF-8 string. Free-text description of the table's
+  contents. Longer and richer than `TITLE`; intended for documentation
+  viewers.
+
 `units_vocabulary`
 : Scalar fixed-length UTF-8 string. Names the vocabulary or authority that
   interprets `units` strings on columns of this table — for example
   `"UDUNITS-2"`, `"UCUM"`, `"QUDT"`, or a URL. When present on the table
   group, it applies as a default to every column whose own `units_vocabulary`
   is absent.
-
-`encoding-type`
-: Scalar fixed-length UTF-8 string. Optional. When set to `"dataframe"`
-  (and `encoding-version` to `"0.2.0"` or another value the producer
-  chooses), it advertises the table group as an Anndata DataFrame so that
-  Anndata readers can consume it. See {ref}`hep001-anndata`.
 
 (table-group-placement)=
 ### Placement of the table group
@@ -618,6 +620,10 @@ A column dataset MAY carry any of the following attributes.
   to the dataset that holds the categorical values (see
   {ref}`hep001-categoricals`).
 
+`valid_min` / `valid_max`
+: Scalar attributes of the same datatype as the column, specifying the minimum
+  and maximum range of the column's values. See {numref}`§%s <fill-vals>`.
+
 `units`
 : Scalar fixed-length UTF-8 string. Physical units of the column's values.
   Absence of `units` implies dimensionless data. Units are interpreted
@@ -629,10 +635,6 @@ A column dataset MAY carry any of the following attributes.
   interprets `units`. When present on a column, it overrides the table
   group's `units_vocabulary` for that column. MAY be a short name
   (`"UDUNITS-2"`) or a URL.
-
-`valid_min` / `valid_max`
-: Scalar attributes of the same datatype as the column, specifying the minimum
-and maximum range of the column's values.
 
 `description`
 : Scalar fixed-length UTF-8 string. Plain-text description of the column's
@@ -1129,6 +1131,15 @@ float columns from Anndata MUST re-fill-value such columns to a
 non-`NaN` sentinel (e.g., the recommended `9.9692099683868690e+36`)
 before the column is HEP001-conformant.
 
+```{note}
+Anndata currently uses a nullable-integer / nullable-boolean encoding
+with a sidecar mask. HEP001 {numref}`§%s <fill-vals>` uses fill values
+instead. Producers targeting both ecosystems should either avoid
+nullable columns or write them in the Anndata form and expose them to
+HEP001 consumers using a column that carries a descriptive
+`description` attribute.
+```
+
 ### Required casing for dual-ecosystem producers
 
 A producer that wants its table groups to be readable by both HEP001 and
@@ -1159,14 +1170,6 @@ HEP001's UPPERCASE reserved names — they are part of an external contract
 HEP001 chose to honor. A future HEP that updates the Anndata alignment
 will, if Anndata ever changes these names, update this list accordingly.
 Until then, treat the lowercase form as load-bearing.
-```
-
-```{note}
-Anndata currently uses a nullable-integer / nullable-boolean encoding
-with a sidecar mask. HEP001 {numref}`§%s <fill-vals>` uses fill values instead. Producers
-targeting both ecosystems should either avoid nullable columns or write
-them in the Anndata form and expose them to HEP001 consumers using a
-column that carries a descriptive `description` attribute.
 ```
 
 (hep001-reserved-names)=
