@@ -424,13 +424,12 @@ the data model defined by this revision of HEP001.
 For this revision of HEP001, the only objects permitted anywhere in the
 HDF5 hierarchy below a table group are:
 
-* column datasets ({ref}`hep001-columns`), including those designated
-  as row index columns by the table group's `INDEX_COLUMNS` attribute
-  ({ref}`hep001-indexes`);
-* categories datasets backing categorical columns
+* the column datasets of the table ({ref}`hep001-columns`), which MAY
+  include row index columns designated by the table group's
+  `INDEX_COLUMNS` attribute ({ref}`hep001-indexes`);
+* the categories datasets backing any categorical columns
   ({ref}`hep001-categoricals`);
-* the reserved `SEARCH_INDEXES` subgroup, the search-index datasets it
-  contains, and their accompanying values datasets
+* the reserved `SEARCH_INDEXES` subgroup and everything it contains
   ({ref}`hep001-search-indexes`).
 
 Any descendant of a table group that does not match one of the
@@ -710,10 +709,10 @@ and `cell_id` is the innermost row identifier.
   meaningful row-label hierarchy — for example, donor → sample → cell
   in single-cell genomics, or year → quarter → ticker in financial
   time series. `INDEX_COLUMNS` lists the level columns in order.
-* **No row index.** A table whose rows are positional only (e.g., an
-  append-only log identified by position) MAY omit `INDEX_COLUMNS` or
-  set it to an empty array. Consumers MUST treat the table as having
-  positional row identifiers in that case.
+* **No row index.** A table whose rows are identified solely by their position
+  (the *N*-th row is "row *N*") SHOULD omit `INDEX_COLUMNS` entirely. Producers
+  MAY equivalently write `INDEX_COLUMNS` as an empty 1-D string array; consumers
+  MUST treat the two forms as semantically identical.
 
 ```{mermaid}
 graph TD
@@ -790,6 +789,15 @@ attribute `KIND` whose value is one of the strings defined below:
 
 Future HEPs MAY register additional `KIND` values. Consumers MUST treat
 unknown `KIND` values as "ignore this search index".
+
+A search-index dataset MAY also carry a `description` attribute (scalar
+fixed-length UTF-8 string), per the descriptive-annotation convention
+used elsewhere in this spec (see {ref}`hep001-reserved-names`, rule 4).
+Producers SHOULD use `description` to record provenance — the timestamp
+of index construction, the producer software and version, and any
+hyperparameters not captured by the index family's own attributes.
+Consumers MAY ignore `description` for query-execution purposes; it is
+purely informational.
 
 
 (chunk-minmax)=
@@ -1076,6 +1084,11 @@ A conformant table group satisfies all of the following at all times:
    (when present) MUST resolve to a column dataset that is a direct
    child of the table group; when `_index` is also present, it MUST
    equal `INDEX_COLUMNS[0]`.
+7. Every categorical column's fill value (see {numref}`§%s <fill-vals>`)
+   MUST NOT collide with a valid integer code in the linked categories
+   dataset's index range, so that the equality test `value == fill_value`
+   unambiguously denotes "missing category" rather than "valid value at
+   category index *fill*."
 
 A producer that mutates a table (appends rows, rewrites a column, etc.)
 MUST either update the affected search indexes consistently or delete
@@ -1405,30 +1418,11 @@ cause the consumer to skip chunks that do in fact satisfy a predicate.
 Consumers SHOULD offer a mode that verifies a search index against the
 column it covers, or that ignores search indexes entirely. Producers
 SHOULD document the provenance of search indexes in the table group's
-`description` when that matters to their users.
+`description` or in each search-index dataset's `description` attribute
+when that matters to their users.
 
-## Open issues
-
-The preamble of this file lists open design points that will be resolved
-during review. They will be moved here as substantive issues arise.
-
-## Future work
-
-The following items are deliberately out of scope for HEP001 v1.0 and
-are candidates for future HEPs:
-
-* a sidecar mask mechanism for nullable columns, interoperable with
-  Anndata's `nullable-integer` and `nullable-boolean` encodings;
-* sparse columns, interoperable with Anndata's CSR / CSC encodings;
-* a registry for additional search-index `KIND` values (e.g. zone maps
-  beyond min/max, interval trees, kd-trees for multi-column search);
-* a standard query-metadata footer that records which indexes a
-  consumer used to answer a query (for auditing);
-* conventions for append-only tables and for concurrent writers.
 
 ## References
-
-### Related HDF5 conventions
 
 * HDF5 file format specification — The HDF Group.
   <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>
@@ -1438,16 +1432,10 @@ are candidates for future HEPs:
   <https://www.pytables.org/usersguide/file_format.html>
 * Anndata on-disk format (DataFrames) — Anndata documentation.
   <https://anndata.readthedocs.io/en/stable/fileformat-prose.html#dataframes>
-
-### Related columnar formats
-
 * Apache Parquet format specification.
   <https://parquet.apache.org/docs/file-format/>
 * Apache Arrow columnar format.
   <https://arrow.apache.org/docs/format/Columnar.html>
-
-### Normative standards and algorithms
-
 * RFC 2119 — Key words for use in RFCs to Indicate Requirement Levels. S. Bradner, 1997.
   <https://datatracker.ietf.org/doc/html/rfc2119>
 * RFC 8174 — Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words. B. Leiba, 2017.
