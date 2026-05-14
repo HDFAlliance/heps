@@ -541,9 +541,8 @@ column MUST use a non-`NaN`, non-infinite value — for example, the recommended
 `9.9692099683868690e+36` from {numref}`§%s <fill-table>` below.
 
 For producers that have no domain-specific constraint forcing a different
-choice, the table below lists recommended fill values. These values are
-exactly representable in their respective datatypes, far outside any
-plausible data range.
+choice, the table below lists recommended fill values for each datatype
+family.
 
 (fill-table)=
 
@@ -563,17 +562,32 @@ plausible data range.
 | vlen string   | `""`                     | n/a                         |
 | enumeration   | `MISSING`                | n/a                         |
 
-The signed-integer sentinels are `INT*_MIN + 1` rather than `INT*_MIN`
-itself, leaving a one-value safety margin against operations that land on
-the type's minimum (e.g., `abs(INT*_MIN)` is undefined behavior in C).
-The unsigned sentinels are the type's maximum.
+The recommended sentinels above are chosen as follows.
+
+**Integers.** Signed-integer sentinels are `INT*_MIN + 1` rather than
+`INT*_MIN` itself, leaving a one-value safety margin against operations
+that land on the type's minimum (e.g., `abs(INT*_MIN)` is undefined
+behavior in C). Unsigned sentinels are the type's maximum.
+
+**Floating point.** The `float32` and `float64` sentinel
+`9.9692099683868690e+36` is exactly representable in both widths and
+preserves bit-identity under width casts, so the spec's required
+equality test works without any rounding-tolerance gymnastics.
+
+**Strings.** The empty string is the recommended sentinel because it is
+rarely a meaningful value in practice.
+
+**Enumerations.** The recommended sentinel is a designated enum member
+named `MISSING`. Producers using an enum column with missing values MUST
+include such a member in the enum type definition; the integer code
+backing the `MISSING` member then serves as the column's fill value.
 
 For datatypes not in the table:
 
-* `float16` is too narrow for a generic sentinel;
-* Boolean (1-bit) datatype cannot represent a missing sentinel
-  alongside their two valid values. Producers MUST widen such columns to
-  `uint8` and use a value greater than `1` (typically `2`).
+* `float16` is too narrow for a generic sentinel.
+* Boolean (1-bit) cannot represent a missing sentinel alongside its
+  two valid values. Producers MUST widen such columns to `uint8` and
+  use a value greater than `1` (typically `2`).
 
 Producers whose column domain includes any of the recommended sentinels
 above MUST set `valid_min` and/or `valid_max` to declare the column's
