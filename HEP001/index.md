@@ -1428,17 +1428,38 @@ are candidates for future HEPs:
 
 ## References
 
+### Related HDF5 conventions
+
+* HDF5 file format specification — The HDF Group.
+  <https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html>
 * HDF5 Table specification — HDF5 High-Level Library, The HDF Group.
   <https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html>
 * PyTables File Format — PyTables Users' Guide.
   <https://www.pytables.org/usersguide/file_format.html>
 * Anndata on-disk format (DataFrames) — Anndata documentation.
   <https://anndata.readthedocs.io/en/stable/fileformat-prose.html#dataframes>
+
+### Related columnar formats
+
 * Apache Parquet format specification.
   <https://parquet.apache.org/docs/file-format/>
 * Apache Arrow columnar format.
   <https://arrow.apache.org/docs/format/Columnar.html>
-* RFC 2119 — Key words for use in RFCs to Indicate Requirement Levels.
+
+### Normative standards and algorithms
+
+* RFC 2119 — Key words for use in RFCs to Indicate Requirement Levels. S. Bradner, 1997.
   <https://datatracker.ietf.org/doc/html/rfc2119>
-* RFC 8174 — Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words.
+* RFC 8174 — Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words. B. Leiba, 2017.
   <https://datatracker.ietf.org/doc/html/rfc8174>
+* IEEE Std 754-2019 — IEEE Standard for Floating-Point Arithmetic. IEEE, 2019.
+  DOI: 10.1109/IEEESTD.2019.8766229
+* Semantic Versioning 2.0.0 — T. Preston-Werner.
+  <https://semver.org/spec/v2.0.0.html>
+* Unicode Standard Annex #15 — Unicode Normalization Forms. The Unicode Consortium.
+  <https://www.unicode.org/reports/tr15/>
+* MurmurHash3 — A. Appleby, SMHasher project.
+  <https://github.com/aappleby/smhasher/wiki/MurmurHash3>
+* A. Kirsch and M. Mitzenmacher, "Less Hashing, Same Performance: Building a Better Bloom Filter,"
+  in *Algorithms — ESA 2006* (LNCS 4168), pp. 456–467, 2006.
+  DOI: 10.1007/11841036_42
