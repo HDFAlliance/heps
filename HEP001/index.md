@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: 2026-05-12
+date: 2026-05-14
 tags:
   - draft
 keywords:
@@ -69,9 +69,10 @@ multidimensional array datasets that are HDF5's traditional strength.
 
 ### A short overview of tabular data in HDF5
 
-The first adopted idiom is the the HDF5 High-Level Library's [Table specification](https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html)
-that ships with the HDF5 High-Level (`H5TB`) library. A table is a single
-one-dimensional dataset whose datatype is an HDF5 compound (record) type,
+The first adopted idiom is the [HDF5 Table specification](https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html),
+part of the HDF5 High-Level Library and implemented through its `H5TB`
+API. A table is a single one-dimensional dataset whose datatype is an
+HDF5 compound (record) type,
 decorated with attributes such as `CLASS="TABLE"`, `VERSION`, `TITLE`,
 `FIELD_0_NAME … FIELD_N_NAME`, `FIELD_0_FILL … FIELD_N_FILL`, and `NROWS`.
 Rows of the logical table become elements of the dataset; columns become
@@ -314,10 +315,10 @@ HDF5 string conventions.
 ### The `VERSION` attribute
 
 Every HEP001 table group MUST carry a scalar, fixed-length ASCII attribute named
-`VERSION` whose value is the HEP001 revision the table conforms to. It's length
-MUST be sized to hold the value being written. For this revision the value is
-`"1.0"`. HEP001 consumers MUST interpret these values according to the [SemVer]
-specification.
+`VERSION` whose value is the HEP001 revision the table conforms to. Producers
+MUST size the attribute to hold the value being written. For this revision the
+value is `"1.0"`. HEP001 consumers MUST interpret these values according to the
+[SemVer] specification.
 
 [SemVer]: https://semver.org/
 
@@ -595,8 +596,12 @@ For datatypes not in the table:
   use a value greater than `1` (typically `2`).
 
 Producers whose column domain includes any of the recommended sentinels
-above MUST set `valid_min` and/or `valid_max` to declare the column's
-actual range, and MUST choose a fill value outside that declared range.
+above MUST choose a different fill value via `H5Pset_fill_value`. For
+columns with a natural numeric range (integer and floating-point
+columns), producers MUST also declare that range via `valid_min` and
+`valid_max` and choose the fill outside it. For columns without a
+natural numeric range (strings, opaque), the alternative fill value
+alone constitutes the override; no additional attribute is required.
 
 ```{note}
 This is a conscious divergence from Anndata's nullable-integer and
@@ -866,7 +871,7 @@ be broken by increasing `r`, so the permutation is total and
 deterministic.
 
 **Ordering:** A `SORTED_ROWS` index MUST only be built over a column
-whose HDF5 datatype has a sorting order defined below:
+whose HDF5 datatype has a HEP001-defined order, as enumerated below:
 
 * **Signed and unsigned integers** (any width): standard arithmetic
   order.
@@ -1119,7 +1124,7 @@ that do not fit a row cell.
 
 Two of the rows above hide rationale relevant to producers:
 
-Float `NaN` as fill is forbidden. Anndata producers commonly use a
+**Float `NaN` as fill is forbidden.** Anndata producers commonly use a
 `NaN` bit pattern as the fill value for floating-point columns
 (inherited from pandas' missing-value convention). HEP001 forbids
 `NaN` as a fill value (see {numref}`§%s <fill-vals>`) because IEEE 754
@@ -1129,14 +1134,13 @@ Re-encoding the column (changing both the metadata fill value *and*
 every `NaN` in the data) is therefore a mandatory transcoding step on
 import.
 
-```{note}
-Anndata currently uses a nullable-integer / nullable-boolean encoding
-with a sidecar mask. HEP001 {numref}`§%s <fill-vals>` uses fill values
-instead. Producers targeting both ecosystems should either avoid
-nullable columns or write them in the Anndata form and expose them to
-HEP001 consumers using a column that carries a descriptive
+**Nullable integer / boolean encoding differs from Anndata.** Anndata
+currently uses a nullable-integer / nullable-boolean encoding with a
+sidecar mask dataset. HEP001 ({numref}`§%s <fill-vals>`) uses fill
+values instead. Producers targeting both ecosystems should either
+avoid nullable columns or write them in the Anndata form and expose
+them to HEP001 consumers via a column that carries a descriptive
 `description` attribute.
-```
 
 ### Required casing for dual-ecosystem producers
 
