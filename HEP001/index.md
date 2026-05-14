@@ -151,8 +151,8 @@ graph TD
   F[("HDF5 File")]
   F --> R[["/ (root group)"]]
   R --> T[["/events (table group, CLASS=COLUMN_TABLE)"]]
-  R --> I[("/images (3-D dataset, detector cube)")]
-  R --> C[("/calibration (2-D dataset)")]
+  R --> I>"/images (3-D dataset, detector cube)"]
+  R --> C>"/calibration (2-D dataset)"]
   T --> c1(["ts (int64)"])
   T --> c2(["energy (float32)"])
   T --> c3(["pixel_ref (object reference)"])
@@ -254,12 +254,14 @@ graph TD
   TG --> c1(["ts (1-D column dataset)"])
   TG --> c2(["energy (1-D column dataset)"])
   TG --> c3(["label (1-D column dataset,<br/>categorical)"])
-  TG --> c4[("label__CATEGORIES (1-D dataset)")]
+  TG --> c4>"label__CATEGORIES (1-D dataset)"]
   TG --> SI[["SEARCH_INDEXES (group)"]]
-  SI --> mm[("ts__chunk_minmax (1-D compound)")]
-  SI --> sr[("energy__sorted_rows (1-D uint64)")]
-  SI --> bm[("label__bitmap (1-D compound)")]
-  SI --> bf[("ts__chunk_bloom (2-D uint8)")]
+  SI --> mm>"ts__chunk_minmax (1-D compound)"]
+  SI --> sr>"energy__sorted_rows (1-D uint64)"]
+  SI --> bm>"label__bitmap (2-D uint8)"]
+  SI --> bv>"label__bitmap__VALUES (1-D)"]
+  SI --> bf>"ts__chunk_bloom (2-D uint8)"]
+  bm -.->|"VALUES"| bv
 
   classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
   classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
@@ -267,6 +269,7 @@ graph TD
   classDef indexCol   fill:#FAD4E1,stroke:#D08FB0,stroke-width:1px,color:#000
   classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
   classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
+  classDef siValues   fill:#E8F3E0,stroke:#A8C088,stroke-width:1px,color:#000
 
   class TG tableGroup
   class SI siGroup
@@ -274,6 +277,7 @@ graph TD
   class c1,c2,c3 dataCol
   class c4 catData
   class mm,sr,bm,bf siData
+  class bv siValues
 ```
 
 The rest of this document specifies each building block: the table group
@@ -391,7 +395,7 @@ graph TD
     R2 --> G1[["/experiments/"]]
     G1 --> T1[["run_042 (table group)"]]
     G1 --> T2[["run_043 (table group)"]]
-    R2 --> IMG[("/images (3-D dataset)")]
+    R2 --> IMG>"/images (3-D dataset)"]
   end
 
   classDef rootGroup  fill:#F4ECD4,stroke:#B8A468,stroke-width:1.5px,color:#000
@@ -667,7 +671,7 @@ metadata of its linked column rather than as a standalone column.
 ```{mermaid}
 graph LR
   col(["label<br/>(int8)<br/>CATEGORIES &rarr; label__CATEGORIES"])
-  cat[("label__CATEGORIES<br/>(fixed UTF-8)<br/>encoding‑type=&quot;categorical&quot;<br/>ordered=false")]
+  cat>"label__CATEGORIES<br/>(fixed UTF-8)<br/>encoding‑type=&quot;categorical&quot;<br/>ordered=false"]
   col -- object ref --> cat
 
   classDef dataCol fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
@@ -757,8 +761,8 @@ search-index dataset.
 graph LR
   C1(["ts (column)<br/>SEARCH_INDEX_LIST &rarr; ts__chunk_minmax"])
   C2(["energy (column)<br/>SEARCH_INDEX_LIST &rarr; energy__sorted_rows"])
-  SI1[("ts__chunk_minmax<br/>(in SEARCH_INDEXES)")]
-  SI2[("energy__sorted_rows<br/>(in SEARCH_INDEXES)")]
+  SI1>"ts__chunk_minmax<br/>(in SEARCH_INDEXES)"]
+  SI2>"energy__sorted_rows<br/>(in SEARCH_INDEXES)"]
   C1 -->|"object ref"| SI1
   C2 -->|"object ref"| SI2
 
@@ -1362,13 +1366,13 @@ graph TD
   TG --> ts(["ts (int64)"])
   TG --> en(["energy (float32)"])
   TG --> lb(["label (int8, categorical)"])
-  TG --> lc[("label__CATEGORIES (vlen UTF-8)")]
+  TG --> lc>"label__CATEGORIES (vlen UTF-8)"]
   TG --> SI[["SEARCH_INDEXES"]]
-  SI --> mm[("ts__chunk_minmax<br/>KIND=CHUNK_MINMAX")]
-  SI --> sr[("energy__sorted_rows<br/>KIND=SORTED_ROWS")]
-  SI --> bm[("label__bitmap<br/>KIND=BITMAP")]
-  SI --> bv[("label__bitmap__VALUES")]
-  SI --> bf[("ts__chunk_bloom<br/>KIND=CHUNK_BLOOM")]
+  SI --> mm>"ts__chunk_minmax<br/>KIND=CHUNK_MINMAX"]
+  SI --> sr>"energy__sorted_rows<br/>KIND=SORTED_ROWS"]
+  SI --> bm>"label__bitmap<br/>KIND=BITMAP"]
+  SI --> bv>"label__bitmap__VALUES"]
+  SI --> bf>"ts__chunk_bloom<br/>KIND=CHUNK_BLOOM"]
   ts -.->|"SEARCH_INDEX_LIST"| mm
   ts -.->|"SEARCH_INDEX_LIST"| bf
   en -.->|"SEARCH_INDEX_LIST"| sr
