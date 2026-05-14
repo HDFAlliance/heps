@@ -20,18 +20,6 @@ numbering:
   heading_3: true
 ---
 
-% -----------------------------------------------------------------------------
-% Open design points still to resolve:
-%   * Does `column-order` become mandatory when the table has more than one
-%     column, or always optional?
-%   * `_index` and `INDEX_COLUMNS` entries are now defined as local column
-%     names within the table group (matching Anndata). Paths into deeper
-%     hierarchies are out of scope; the table group is the resolution scope.
-%   * For the chunk min/max search index of floating-point columns, should
-%     NaN handling be normative (e.g. NaNs never update min/max; a separate
-%     `nan_count` field records them)?
-% -----------------------------------------------------------------------------
-
 (hep001-title)=
 # HEP001: Column-Oriented Tabular Data in HDF5
 
@@ -81,8 +69,7 @@ multidimensional array datasets that are HDF5's traditional strength.
 
 ### A short overview of tabular data in HDF5
 
-The first adopted idiom is the [HDF5 Table
-specification](https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html)
+The first adopted idiom is the the HDF5 High-Level Library's [Table specification](https://support.hdfgroup.org/documentation/hdf5/latest/_t_b_l_s_p_e_c.html)
 that ships with the HDF5 High-Level (`H5TB`) library. A table is a single
 one-dimensional dataset whose datatype is an HDF5 compound (record) type,
 decorated with attributes such as `CLASS="TABLE"`, `VERSION`, `TITLE`,
@@ -302,7 +289,7 @@ dataset ({ref}`hep001-search-indexes`).
 
 Every HEP001 table group MUST carry an attribute named `CLASS` with:
 
-* datatype: null-terminated 13-bytes fixed-length ASCII string
+* datatype: null-terminated 13-byte fixed-length ASCII string
   (exactly the length of the value below plus a NUL byte),
 * shape: scalar,
 * value: `COLUMN_TABLE`.
@@ -313,10 +300,6 @@ producer MUST NOT write `CLASS="COLUMN_TABLE"` attribute on any group that does
 not satisfy the rest of this specification.
 
 ```{note}
-`CLASS` uses fixed-length ASCII to match the long-standing HDF5 High-Level API
-conventions. All other string attributesin this spec are UTF-8 unless explicitly
-stated otherwise.
-
 HDF5 fixed-length strings are byte-length-bounded. Producers MUST size
 each fixed-length UTF-8 attribute with enough bytes to hold the longest
 value they intend to write (a single UTF-8 code point can take up to
@@ -326,9 +309,11 @@ HDF5 string conventions.
 
 ### The `VERSION` attribute
 
-Every HEP001 table group MUST carry a scalar, fixed-length ASCII attribute
-named `VERSION` whose value is the HEP001 revision the table conforms to.
-For this revision the value is `"1.0"`. HEP001 consumers MUST interpret these values according to the [SemVer] specification.
+Every HEP001 table group MUST carry a scalar, fixed-length ASCII attribute named
+`VERSION` whose value is the HEP001 revision the table conforms to. It's length
+MUST be sized to hold the value being written. For this revision the value is
+`"1.0"`. HEP001 consumers MUST interpret these values according to the [SemVer]
+specification.
 
 [SemVer]: https://semver.org/
 
@@ -495,7 +480,7 @@ Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
 * has the same length (number of elements) as every other column dataset
   in the same table group.
 
-The {ref}` name <hep001-dset-name>` of the HDF5 dataset is the column name. Any
+The {ref}`name <hep001-dset-name>` of the HDF5 dataset is the column name. Any
 name acceptable as an HDF5 link name (UTF-8, excluding `/` and NUL) is
 permitted. Producers MUST NOT use any HEP001 reserved name
 ({ref}`hep001-reserved-names-list`) as a column name. Producers SHOULD also
