@@ -833,21 +833,9 @@ multiple columns because chunks of different columns are independent.
 
 * `KIND` — `"CHUNK_MINMAX"` (see {numref}`§%s <common-idx-attrs>`).
 
-**Query pattern:** To evaluate a predicate `col BETWEEN lo AND hi`:
-
-```{mermaid}
-flowchart TD
-  A["Predicate: col BETWEEN lo AND hi"]
-  A --> B["Open col__chunk_minmax"]
-  B --> C{"For each row i of the index"}
-  C -->|"max below lo OR min above hi"| D["Skip chunk i"]
-  C -->|"otherwise"| E["Read chunk i of col"]
-  E --> F["Apply predicate to chunk values"]
-  D --> G["Next i"]
-  F --> G
-  G --> C
-```
-
+All other per-index data lives in the compound datatype's fields
+(`min`, `max`, `nan_count`, `fill_count`, `n`); these are HDF5 datatype
+fields, not HDF5 attributes.
 
 (sorted-row)=
 ### Sorted-row permutation index (`KIND = SORTED_ROWS`)
@@ -1210,6 +1198,15 @@ to the specification and which were chosen by the producer of the data.
    practice are exempt from rule 1 and MUST be written in lowercase, so that
    generic metadata harvesters and existing tools can discover them on a
    HEP001 table without case-folding.
+
+   The descriptive annotation attributes `units`, `units_vocabulary`, and
+   `description` are lowercase and carry no contractual meaning: their
+   presence, absence, or value does not change how a HEP001 consumer
+   interprets the table or any of its objects. They are defined alongside
+   the objects that may carry them ({ref}`hep001-table-group`,
+   {ref}`hep001-columns`) and do not appear in the reserved-name catalog.
+   Any future descriptive annotation attribute introduced by this HEP or
+   a successor MUST follow the same lowercase convention.
 
    The value-domain attributes `valid_min` and `valid_max`, when present on
    a column dataset, carry contractual meaning: the column's fill value
