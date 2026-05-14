@@ -1102,47 +1102,32 @@ a group with one dataset per column — and HEP001 deliberately uses
 Anndata's attribute names (`column-order`, `_index`, `encoding-type`,
 `encoding-version`) where the concepts overlap, so that a HEP001 table
 group can be made readable by an Anndata consumer with minimal extra
-metadata.
+metadata. The table below summarizes the convergence and divergence
+points; the paragraphs that follow give the rationale for the rules
+that do not fit a row cell.
 
-A HEP001 producer MAY write a table group that is also a valid Anndata
-DataFrame by additionally setting on the table group:
+| Concern | Anndata form | HEP001 form | Interop note |
+|---|---|---|---|
+| Group identification | `encoding-type = "dataframe"`, `encoding-version` | `CLASS = "COLUMN_TABLE"`, `VERSION` | A dual-ecosystem table group SHOULD carry all four. |
+| Row-label naming | `_index` (scalar string) | `INDEX_COLUMNS` (1-D string array) | Write both; `_index` MUST equal `INDEX_COLUMNS[0]` (see {numref}`§%s <hep001-indexes>`). When a table has no row labels, omit both. |
+| Column ordering | `column-order` (1-D string array) | identical | No translation needed. |
+| Categorical encoding | `encoding-type = "categorical"`, `ordered` on the values dataset | identical | No translation needed. |
+| Categorical missing code | `-1` (signed) or `UINT*_MAX` (unsigned) | dataset fill value ({numref}`§%s <fill-vals>`, {numref}`§%s <hep001-categoricals>`) | Producers SHOULD override the {numref}`§%s <fill-table>` default to Anndata's convention and declare the actual code range via `valid_min` / `valid_max`. |
+| Float missing value | `NaN` bit pattern | non-`NaN` sentinel ({numref}`§%s <fill-vals>`, e.g. `9.9692099683868690e+36`) | When importing from Anndata, replace every `NaN` in float columns with a non-`NaN` sentinel and set that sentinel as the dataset's fill value. |
+| Nullable integer / boolean | sidecar mask dataset | column fill value ({numref}`§%s <fill-vals>`) | Avoid nullable columns, or write them in Anndata form and expose them to HEP001 consumers via the column's `description`. |
+| HEP001-only metadata | n/a | `KIND`, `SEARCH_INDEX_LIST`, `VALUES`, `valid_min`, `valid_max`, `units`, `units_vocabulary`, `description` | Anndata ignores and preserves on round-trip. |
 
-* `encoding-type` = `"dataframe"`,
-* `encoding-version` = the Anndata DataFrame version the producer
-  targets (for example, `"0.2.0"`).
+Two of the rows above hide rationale relevant to producers:
 
-An Anndata consumer then sees the same group HEP001 sees, down to
-categorical columns that share the `"categorical"` encoding. The
-attributes specific to HEP001 (`CLASS`, `VERSION`, `INDEX_COLUMNS`,
-`SEARCH_INDEX_LIST`, `CATEGORIES`, `VALUES`, `units`,
-`units_vocabulary`, `valid_min`, `valid_max`) are ignored by Anndata
-and left intact.
-
-`_index` and `INDEX_COLUMNS` carry the same row-label concept in
-different shapes: Anndata's `_index` is a scalar string naming one
-column; HEP001's `INDEX_COLUMNS` is a 1-D string array supporting
-hierarchical row indexes. Producers that target both ecosystems
-SHOULD write both, with `_index` set equal to `INDEX_COLUMNS[0]` (the
-outermost index level). Anndata consumers see only the primary row
-index; HEP001 consumers see the full hierarchy. When a table has no
-row labels at all, both attributes are omitted (or `INDEX_COLUMNS` is
-an empty array).
-
-Producers targeting both ecosystems SHOULD set the fill value of a
-categorical column to `-1` (for signed codes) or the maximum unsigned
-value (for unsigned codes), overriding the default sentinel from
-{numref}`§%s <fill-table>`, so that Anndata's pandas-derived missingness
-convention is honored. The `valid_min` and `valid_max` attributes declare
-the actual code range for HEP001 consumers.
-
-Anndata producers commonly use a `NaN` bit pattern as the fill value for
-floating-point columns (inherited from pandas' missing-value convention).
-HEP001 forbids `NaN` as a fill value (see {numref}`§%s <fill-vals>`)
-because IEEE 754 makes `NaN != NaN` and the spec's required equality
-test would never detect any missing rows. Producers importing
-float columns from Anndata MUST re-fill-value such columns to a
-non-`NaN` sentinel (e.g., the recommended `9.9692099683868690e+36`)
-before the column is HEP001-conformant.
+Float `NaN` as fill is forbidden. Anndata producers commonly use a
+`NaN` bit pattern as the fill value for floating-point columns
+(inherited from pandas' missing-value convention). HEP001 forbids
+`NaN` as a fill value (see {numref}`§%s <fill-vals>`) because IEEE 754
+makes `NaN != NaN` and the spec's required equality test
+`value == fill_value` would never detect any missing rows.
+Re-encoding the column (changing both the metadata fill value *and*
+every `NaN` in the data) is therefore a mandatory transcoding step on
+import.
 
 ```{note}
 Anndata currently uses a nullable-integer / nullable-boolean encoding
