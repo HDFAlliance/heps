@@ -249,21 +249,58 @@ the table group's `INDEX_COLUMNS` attribute) and, optionally, a reserved
 `SEARCH_INDEXES` subgroup that holds query-acceleration structures.
 
 ```{mermaid}
-graph TD
-  TG[["/my_table (table group)<br/>CLASS=COLUMN_TABLE, VERSION=1.0<br/>INDEX_COLUMNS = [row_id]"]]
-  TG --> c0(["row_id (1-D column dataset,<br/>row index)"])
-  TG --> c1(["ts (1-D column dataset)"])
-  TG --> c2(["energy (1-D column dataset)"])
-  TG --> c3(["label (1-D column dataset,<br/>categorical)"])
-  TG --> c4>"label__CATEGORIES (1-D dataset)"]
-  TG --> SI[["SEARCH_INDEXES (group)"]]
-  SI --> mm>"ts__chunk_minmax (1-D compound)"]
-  SI --> sr>"energy__sorted_rows (1-D uint64)"]
-  SI --> bm>"label__bitmap (2-D uint8)"]
-  SI --> bv>"label__bitmap__VALUES (1-D)"]
-  SI --> bf>"ts__chunk_bloom (2-D uint8)"]
-  bm -.->|"VALUES"| bv
+flowchart TD
+  subgraph Table_Group [Table Group]
+    direction LR
+    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE', VERSION='1.0'<br/>INDEX_COLUMNS=['row_id']"]]
 
+    %% By connecting TG to these in order, and them to each other invisibly,
+    %% we force a more structured layout.
+    c0(["row_id<br/>(1-D column dataset)"])
+    c1(["ts<br>(1-D column dataset)"])
+    c2(["energy<br>(1-D column dataset)"])
+    c3(["label<br>(1-D column dataset,<br/>categorical)"])
+    c4>"label__CATEGORIES<br>(1-D dataset)"]
+
+    c0 ~~~ c1 ~~~ c2 ~~~ c3
+  end
+
+  subgraph Search_Indexes [Search Indexes]
+    direction TB
+    SI[["/my_table/SEARCH_INDEXES (group)"]]
+    mm>"ts__chunk_minmax<br>(1-D compound)"]
+    bf>"ts__chunk_bloom<br>(2-D uint8)"]
+    sr>"energy__sorted_rows<br>(1-D uint64)"]
+    bm>"label__bitmap<br>(2-D uint8)"]
+    bv>"label__bitmap__VALUES<br>(1-D)"]
+
+    %% Forcing mm and bf to sit side-by-side under SI
+    mm ~~~ bf
+  end
+
+  %% Solid Line Connections
+  TG --> c0
+  TG --> c1
+  TG --> c2
+  TG --> c3
+  TG --> c4
+  TG -->|"subgroup"| SI
+
+  SI --> mm
+  SI --> bf
+  SI --> sr
+  SI --> bm
+  SI --> bv
+
+  %% Dotted Line Connections
+  c3 -.->|"CATEGORIES"| c4
+  bm -.->|"VALUES"| bv
+  c1 -.->|"SEARCH_INDEX_LIST"| mm
+  c1 -.->|"SEARCH_INDEX_LIST"| bf
+  c2 -.->|"SEARCH_INDEX_LIST"| sr
+  c3 -.->|"SEARCH_INDEX_LIST"| bm
+
+  %% Styling
   classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
   classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
   classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
@@ -271,6 +308,8 @@ graph TD
   classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
   classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
   classDef siValues   fill:#E8F3E0,stroke:#A8C088,stroke-width:1px,color:#000
+  style Table_Group fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
+  style Search_Indexes fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
 
   class TG tableGroup
   class SI siGroup
