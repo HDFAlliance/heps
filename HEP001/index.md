@@ -225,7 +225,7 @@ Column dataset
   represents one column of the table. The dataset's name is the column name.
 
 Row index column
-: A column dataset whose name appears in the table group's `INDEX_COLUMNS`
+: A column dataset referenced by the table group's `INDEX_COLUMNS`
   attribute and which therefore supplies row labels for the table. Row index
   columns are otherwise indistinguishable from any other column dataset; the
   designation is made at the table-group level, not on the column itself.
@@ -262,7 +262,7 @@ data.
 flowchart TD
   subgraph Table_Group [Table Group]
     direction LR
-    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE', VERSION='1.0'<br/>NROWS=N, INDEX_COLUMNS=['row_id']"]]
+    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE', VERSION='1.0'<br/>NROWS=N, INDEX_COLUMNS=[ref(row_id)]"]]
 
     %% By connecting TG to these in order, and them to each other invisibly,
     %% we force a more structured layout.
@@ -408,15 +408,16 @@ The table group MAY carry the following attributes.
   mirroring HDF5 Table and PyTables. Purely descriptive.
 
 `INDEX_COLUMNS`
-: One-dimensional fixed-length UTF-8 string attribute whose elements are the
-  names of the column datasets that serve as row labels for this table, in
+: One-dimensional attribute of HDF5 object references whose elements point
+  to the column datasets that serve as row labels for this table, in
   hierarchical order from outermost to innermost level. For example, a table
   indexed by `(donor_id, sample_id, cell_id)` writes `INDEX_COLUMNS =
-  ["donor_id", "sample_id", "cell_id"]`. An empty array or absent attribute
-  means the table has no row labels and rows are positional only. Every name
-  listed MUST resolve to a column dataset that is a direct child of the table
-  group. Row index columns apply to the table as a whole — every column in the
-  table is labeled by them. See {ref}`hep001-indexes`.
+  [ref(donor_id), ref(sample_id), ref(cell_id)]`. An empty array or absent
+  attribute means the table has no row labels and rows are positional only.
+  Every reference MUST resolve to a column dataset that is a direct child of
+  the table group and MUST NOT be a null reference. Row index columns apply
+  to the table as a whole — every column in the table is labeled by them.
+  See {ref}`hep001-indexes`.
 
 `column-order`
 : One-dimensional fixed-length UTF-8 string attribute whose elements are
@@ -427,11 +428,11 @@ The table group MAY carry the following attributes.
   attribute name uses a hyphen (not an underscore) to match Anndata.
 
 `_index`
-: Scalar fixed-length UTF-8 string. The name of the column that supplies
-  the primary row labels for this table (for example, `"row_id"`).
+: Scalar fixed-length UTF-8 string. The dataset name of the column that
+  supplies the primary row labels for this table (for example, `"row_id"`).
   Matches Anndata's `_index` exactly. When both `INDEX_COLUMNS` and
-  `_index` are present, `_index` MUST equal `INDEX_COLUMNS[0]`. See
-  {ref}`hep001-anndata`.
+  `_index` are present, `_index` MUST equal the dataset name of the
+  column referenced by `INDEX_COLUMNS[0]`. See {ref}`hep001-anndata`.
 
 `encoding-type`
 : Scalar fixed-length UTF-8 string. Optional. When set to `"dataframe"`
@@ -768,7 +769,7 @@ graph LR
 (hep001-indexes)=
 ## Row index columns
 
-A **row index column** is a column dataset whose name appears in the table
+A row index column is a column dataset referenced by the table
 group's `INDEX_COLUMNS` attribute (see {ref}`hep001-table-group`). Row index
 columns supply row labels for the table as a whole — every column in the table
 is labeled by every row index column. They are ordinary column datasets in every
@@ -777,10 +778,10 @@ column.
 
 ### Hierarchy
 
-When `INDEX_COLUMNS` contains more than one name, the order is the
+When `INDEX_COLUMNS` contains more than one reference, the order is the
 row-label hierarchy from outermost to innermost level. For example,
-`INDEX_COLUMNS = ["donor_id", "sample_id", "cell_id"]` declares a
-three-level row index in which `donor_id` is the outermost grouping
+`INDEX_COLUMNS = [ref(donor_id), ref(sample_id), ref(cell_id)]` declares
+a three-level row index in which `donor_id` is the outermost grouping
 and `cell_id` is the innermost row identifier.
 
 ### Typical uses
@@ -794,12 +795,12 @@ and `cell_id` is the innermost row identifier.
   time series. `INDEX_COLUMNS` lists the level columns in order.
 * **No row index.** A table whose rows are identified solely by their position
   (the *N*-th row is "row *N*") SHOULD omit `INDEX_COLUMNS` entirely. Producers
-  MAY equivalently write `INDEX_COLUMNS` as an empty 1-D string array; consumers
-  MUST treat the two forms as semantically identical.
+  MAY equivalently write `INDEX_COLUMNS` as an empty 1-D object-reference
+  array; consumers MUST treat the two forms as semantically identical.
 
 ```{mermaid}
 graph TD
-  TG[["table group<br/>INDEX_COLUMNS = [donor_id, sample_id]"]]
+  TG[["table group<br/>INDEX_COLUMNS = [ref(donor_id), ref(sample_id)]"]]
   TG --> c1(["donor_id<br/>(column, outer index level)"])
   TG --> c2(["sample_id<br/>(column, inner index level)"])
   TG --> c3(["energy<br/>(data column)"])
@@ -1292,10 +1293,11 @@ A conformant table group satisfies all of the following at all times:
 6. `column-order`, when present, MUST list every column dataset of the
    table exactly once and MUST NOT list datasets that are not column
    datasets.
-7. Every name listed in the table group's `INDEX_COLUMNS` attribute
+7. Every reference in the table group's `INDEX_COLUMNS` attribute
    (when present) MUST resolve to a column dataset that is a direct
-   child of the table group; when `_index` is also present, it MUST
-   equal `INDEX_COLUMNS[0]`.
+   child of the table group and MUST NOT be a null reference; when
+   `_index` is also present, it MUST equal the dataset name of the
+   column referenced by `INDEX_COLUMNS[0]`.
 8. Every categorical column's fill value (see {numref}`§%s <fill-vals>`)
    MUST NOT collide with a valid integer code in the linked categories
    dataset's index range, so that the equality test `value == fill_value`
@@ -1328,7 +1330,7 @@ that do not fit a row cell.
 |---|---|---|---|
 | Group identification | `encoding-type = "dataframe"`, `encoding-version` | `CLASS = "COLUMN_TABLE"`, `VERSION` | A dual-ecosystem table group SHOULD carry all four. |
 | Row count | not explicit; equals first-dim extent of every column dataset | explicit scalar `NROWS` attribute (`uint64`) on the table group | A dual-ecosystem producer SHOULD set `NROWS` equal to every column's first-dim extent — i.e., no preallocation — because Anndata readers infer the row count from extent. HEP001 readers use `NROWS` regardless. |
-| Row-label naming | `_index` (scalar string) | `INDEX_COLUMNS` (1-D string array) | Write both; `_index` MUST equal `INDEX_COLUMNS[0]` (see {numref}`§%s <hep001-indexes>`). When a table has no row labels, omit both. |
+| Row-label naming | `_index` (scalar string) | `INDEX_COLUMNS` (1-D array of object references) | Write both; `_index` MUST equal the dataset name of the column referenced by `INDEX_COLUMNS[0]` (see {numref}`§%s <hep001-indexes>`). When a table has no row labels, omit both. Round-trip is symmetric: a HEP001 → Anndata exporter dereferences `INDEX_COLUMNS[0]` to a name; an Anndata → HEP001 importer resolves `_index` to a dataset and writes a reference to it. |
 | Column ordering | `column-order` (1-D string array) | identical | No translation needed. |
 | Categorical encoding | `encoding-type = "categorical"`, `ordered` on the values dataset | identical | No translation needed. |
 | Categorical missing code | `-1` (signed) or `UINT*_MAX` (unsigned) | dataset fill value ({numref}`§%s <fill-vals>`, {numref}`§%s <hep001-categoricals>`) | Producers SHOULD override the {numref}`§%s <fill-table>` default to Anndata's convention and declare the actual code range via `valid_min` / `valid_max`. |
@@ -1470,8 +1472,8 @@ The complete set of HEP001 reserved names is listed below.
 : Human-readable title of the table (optional).
 
 `INDEX_COLUMNS`
-: A 1-D array attribute of fixed-length UTF-8 strings, whose elements are names
-  of the column datasets that serve as row labels for the table, in hierarchical
+: A 1-D array attribute of HDF5 object references, whose elements point to
+  the column datasets that serve as row labels for the table, in hierarchical
   order from outermost to innermost level. See {ref}`hep001-indexes`.
 
 #### Column dataset attribute names
@@ -1539,7 +1541,7 @@ and no search indexes.
   NROWS             = N                (uint64, scalar)
   TITLE             = "Sample run"     (UTF-8)
   column-order      = ["row_id", "ts", "energy", "label"]  (UTF-8, 1-D)
-  INDEX_COLUMNS     = ["row_id"]       (UTF-8, 1-D)
+  INDEX_COLUMNS     = [ref(row_id)]    (1-D object references)
   _index            = "row_id"         (UTF-8; Anndata interop)
 
 /my_table/row_id                   (Dataset, uint64, shape (N,))
@@ -1582,7 +1584,7 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
 
 ```{mermaid}
 graph TD
-  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>NROWS=N<br/>INDEX_COLUMNS=[row_id]"]]
+  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>NROWS=N<br/>INDEX_COLUMNS=[ref(row_id)]"]]
   TG --> ri(["row_id (uint64, row index)"])
   TG --> ts(["ts (int64)"])
   TG --> en(["energy (float32)"])
