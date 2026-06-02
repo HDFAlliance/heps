@@ -231,9 +231,15 @@ Row index column
   designation is made at the table-group level, not on the column itself.
 
 Row
-: A position `i` in a column dataset. Every column dataset in the same
-  table group MUST have the same length, so the same `i` refers to the
+: A position `i` in the half-open range `[0, NROWS)`
+  (see {numref}`§%s <hep001-nrows>`) within every column dataset of the
+  table group. Every column dataset MUST have the same first-dimension
+  extent and that extent MUST be `≥ NROWS`, so the same `i` refers to the
   same logical row everywhere.
+
+`NROWS`
+: The number of logical rows currently in the table. A scalar `uint64`
+  attribute on the table group, defined in {numref}`§%s <hep001-nrows>`.
 
 Search index dataset
 : An HDF5 dataset stored under the `SEARCH_INDEXES` child group of a table
@@ -246,13 +252,17 @@ Search index dataset
 A HEP001 table is an HDF5 **group** whose direct children are the table's
 columns (one or more of which MAY be designated as row index columns via
 the table group's `INDEX_COLUMNS` attribute) and, optionally, a reserved
-`SEARCH_INDEXES` subgroup that holds query-acceleration structures.
+`SEARCH_INDEXES` subgroup that holds query-acceleration structures. The
+table's authoritative row count lives in the table group's `NROWS`
+attribute (see {numref}`§%s <hep001-nrows>`); every column dataset has
+the same first-dimension extent, and rows `[0, NROWS)` are the table's
+data.
 
 ```{mermaid}
 flowchart TD
   subgraph Table_Group [Table Group]
     direction LR
-    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE', VERSION='1.0'<br/>INDEX_COLUMNS=['row_id']"]]
+    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE', VERSION='1.0'<br/>NROWS=N, INDEX_COLUMNS=['row_id']"]]
 
     %% By connecting TG to these in order, and them to each other invisibly,
     %% we force a more structured layout.
@@ -360,6 +370,34 @@ value is `"1.0"`. HEP001 consumers MUST interpret these values according to the
 [SemVer] specification.
 
 [SemVer]: https://semver.org/
+
+(hep001-nrows)=
+### The `NROWS` attribute
+
+Every HEP001 table group MUST carry a scalar `NROWS` attribute of datatype
+`uint64` whose value is the number of logical rows currently in the table.
+`NROWS` is the table's authoritative row count: rows `[0, NROWS)` of every
+column dataset are part of the table, and rows `[NROWS, extent)`, when
+present, are reserved storage.
+
+`NROWS` and a column dataset's first-dimension extent are related but not
+equal in general. Every column's extent MUST be `≥ NROWS` (see
+{numref}`§%s <hep001-consistency>`), but it MAY exceed `NROWS` when a producer
+has preallocated space for future appends. A consumer MUST determine the
+table's row count from `NROWS` and MUST NOT infer it from extent — doing so
+would silently include preallocated slots or post-crash residue as if they
+were table rows.
+
+The attribute is borrowed from the long-established HDF5 Table and PyTables
+conventions, where it plays the same role. Centralizing the row count in
+one place — independent of any column's storage state — gives producers a
+single-attribute commit point for atomic appends (see
+{numref}`§%s <write-workflow>`) and gives consumers a single place to look
+for the table's size.
+
+For a freshly created, empty table, `NROWS = 0`. Every column dataset's
+first-dimension extent MUST be `≥ 0` (a zero-length column is permitted
+and is the natural form of a brand-new table).
 
 ### Optional table group attributes
 
@@ -522,8 +560,9 @@ Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
 
 * is a direct child of the table group,
 * has rank 1 shape,
-* has the same length (number of elements) as every other column dataset
-  in the same table group.
+* has the same first-dimension extent as every other column dataset
+  in the same table group, and that extent is `≥ NROWS`
+  (see {numref}`§%s <hep001-nrows>` and {numref}`§%s <hep001-consistency>`).
 
 The {ref}`name <hep001-dset-name>` of the HDF5 dataset is the column name. Any
 name acceptable as an HDF5 link name (UTF-8, excluding `/` and NUL) is
@@ -852,10 +891,13 @@ numeric column by letting the engine skip chunks whose value range does
 not overlap the predicate.
 
 **Shape:** The search-index dataset is 1-D with length equal to the number of
-chunks in the source column dataset:
+chunks of the source column dataset that contain logical-table rows:
 
-* `ceil(column_length / chunk_length)` for a chunked column,
-* `1` for a contiguous column.
+* `ceil(NROWS / chunk_length)` for a chunked column,
+* `1` for a contiguous column (or `0` when `NROWS = 0`).
+
+Chunks lying entirely in the column's preallocated tail
+(`[NROWS, extent)`, see {numref}`§%s <hep001-nrows>`) are not indexed.
 
 **Datatype:** An HDF5 compound datatype with the following fields, in
 declaration order:
@@ -866,9 +908,11 @@ declaration order:
   non-floating-point columns this field MUST be present and set to 0.
 * `fill_count` — `uint64`. The number of elements in the chunk that equal
   the column's HDF5 fill value (i.e. count of "missing" under {numref}`§%s <fill-vals>`).
-* `n` — `uint64`. The number of logical rows covered by this chunk. Because the
-  last chunk may be partially full, `n` is strictly less than or equal to the
-  column's chunk length.
+* `n` — `uint64`. The number of logical rows (i.e., rows in
+  `[0, NROWS)`; see {numref}`§%s <hep001-nrows>`) covered by this chunk.
+  For every chunk other than the last, `n` equals the column's chunk
+  length; for the last data-bearing chunk, `n` MAY be strictly less than
+  the chunk length when `NROWS` is not a multiple of it.
 
 **Semantics:** For floating-point columns, `min` and `max` MUST ignore
 `NaN` values — if every value in the chunk is `NaN`, `min` and `max` MUST be
@@ -898,7 +942,9 @@ A sorted-row index stores row positions in sorted order of a column's
 values, enabling binary search and range scans without reading the full
 column.
 
-**Shape:** 1-D, length equal to the column length.
+**Shape:** 1-D, length equal to `NROWS` (see {numref}`§%s <hep001-nrows>`).
+Rows of the source column lying in the preallocated tail
+`[NROWS, extent)` are not part of the permutation.
 
 **Datatype:** An unsigned integer wide enough to address every row of the
 source column (typically `uint64`).
@@ -979,8 +1025,10 @@ order, as enumerated under *Ordering* above; otherwise no
 A bitmap index accelerates equality predicates on low-cardinality
 columns.
 
-**Shape:** 2-D of shape `(K, ceil(N / 8))`, where `K` is the number of
-distinct values (or categories) indexed and `N` is the column length.
+**Shape:** 2-D of shape `(K, ceil(NROWS / 8))`, where `K` is the number of
+distinct values (or categories) indexed and `NROWS` is the table's row
+count (see {numref}`§%s <hep001-nrows>`). Rows of the source column
+lying in the preallocated tail `[NROWS, extent)` are not indexed.
 
 **Datatype:** `uint8`. Bit `r % 8` (where bit 0 is the byte's least
 significant bit) of byte `r / 8` of row `k` is set if the column's value
@@ -1018,8 +1066,12 @@ high-cardinality columns by giving a fast negative answer for chunks
 that provably do not contain the queried value.
 
 **Shape:** 2-D of shape `(n_chunks, m_bytes)`, where `n_chunks` is the
-number of chunks in the source column and `m_bytes` is the Bloom-filter
-byte length per chunk (constant across chunks).
+number of chunks of the source column that contain logical-table rows
+(`ceil(NROWS / chunk_length)` for a chunked column, `1` for a contiguous
+column, or `0` when `NROWS = 0`; see {numref}`§%s <hep001-nrows>`) and
+`m_bytes` is the Bloom-filter byte length per chunk (constant across
+chunks). Chunks lying entirely in the column's preallocated tail
+`[NROWS, extent)` are not indexed.
 
 **Datatype:** `uint8`. Each row is the packed bit array of one chunk's
 Bloom filter. Because the storage element is `uint8`, HDF5 performs no
@@ -1108,35 +1160,157 @@ the canonical encoding; a future revision MAY register alternative
 `hash_family` values or canonical encodings for additional datatypes.
 ```
 
+(write-workflow)=
+## Writing and appending data
+
+This section specifies how producers add, remove, or rewrite rows of a
+HEP001 table and how consumers interpret the table during and after
+those operations. The contract is anchored on the table group's `NROWS`
+attribute ({numref}`§%s <hep001-nrows>`).
+
+### How consumers interpret `NROWS`
+
+`NROWS` is the authoritative count of rows currently in the table.
+A consumer MUST treat rows `[0, NROWS)` of every column dataset as
+the table's data and MUST ignore rows `[NROWS, extent)` of any
+column dataset, even when those rows hold values that are not the
+column's fill value. The tail is reserved storage, not data; its
+contents have no semantic meaning under HEP001 and MAY contain
+arbitrary bytes left behind by a previous write, a previous
+truncation, or HDF5's own fill-value mechanism.
+
+The same cutoff applies to search indexes. A consumer MUST consult
+only those index entries that describe rows or chunks within
+`[0, NROWS)`. Tail entries — for example, a `CHUNK_MINMAX` row
+describing a chunk that lies entirely in `[NROWS, extent)` — MAY be
+present as residue from preallocation or from a previous, larger table
+state, and MUST be ignored.
+
+### Appending rows
+
+A producer that appends `K` new rows to a table MUST perform the
+operation in the following order, treating step 5 as the single commit
+point that publishes the new rows to readers:
+
+1. **Read the current `NROWS`** (call it `N_old`).
+2. **Extend every column dataset** so that its first-dimension extent is
+   `≥ N_old + K`. A column that already has spare capacity from a prior
+   preallocation needs no extension; the requirement is the
+   post-condition `extent ≥ N_old + K` on every column.
+3. **Write the new row values** into rows `[N_old, N_old + K)` of each
+   column. Writes MAY proceed in any order across columns.
+4. **Update every search index** on every affected column so that, after
+   step 5 commits, the index correctly describes rows `[0, N_old + K)`.
+   For index families that support efficient incremental updates
+   (`CHUNK_MINMAX`, `CHUNK_BLOOM`), a producer MAY simply append new
+   entries; for families that do not (`SORTED_ROWS`, `BITMAP`), the
+   producer typically rebuilds the index from scratch. A producer that
+   cannot perform a consistent index update MUST delete the affected
+   indexes — and remove the corresponding references from each column's
+   `SEARCH_INDEX_LIST` — before step 5.
+5. **Commit by writing `NROWS = N_old + K`** as the final step. The
+   attribute update SHOULD be followed by an `H5Fflush` (or equivalent)
+   before the producer reports the append as complete.
+
+The ordering is load-bearing for crash recovery. Until step 5 commits,
+every consumer that opens the file still sees `NROWS = N_old` and
+therefore the table exactly as it was before the append. A producer
+that crashes anywhere in steps 1–4 leaves a file whose observable
+state is identical to the pre-append state: the unused tail in
+`[N_old, extent)` is reserved storage, and any index residue beyond
+`N_old` is ignored. No cleanup is required for readers to use the
+file correctly. A subsequent producer that wants to retry the append
+SHOULD either overwrite the unused tail or extend further.
+
+HDF5 itself does not guarantee atomic ordering between the data writes
+of step 3, the index writes of step 4, and the attribute update of
+step 5 unless the producer issues explicit `H5Fflush` calls between
+them or uses SWMR mode. A producer that requires strong durability
+across a crash MUST issue an `H5Fflush` after step 4 and again after
+step 5, so that the on-disk state cannot show `NROWS = N_old + K`
+together with unwritten column data or stale indexes.
+
+### Preallocation
+
+A producer MAY extend column datasets past the current `NROWS` to
+amortize the cost of `H5Dset_extent` across many small appends — for
+example, extending by one chunk's worth of rows at a time and filling
+that chunk over several append batches. The extended tail is reserved
+storage; its contents have no semantic meaning under HEP001 until a
+subsequent commit (step 5 above) increases `NROWS` to cover them.
+
+A producer that preallocates SHOULD ensure that all columns in the
+same table group remain at equal first-dimension extents after each
+operation (see {numref}`§%s <hep001-consistency>`). The simplest and
+recommended discipline is to preallocate every column by the same
+number of rows at the same time.
+
+### Truncation
+
+A producer MAY shrink the logical table by writing a smaller `NROWS`
+value. The truncation is logical: the column datasets MAY retain their
+old extents, with rows `[new_NROWS, old_NROWS)` becoming reserved
+storage. A producer that wants to reclaim physical space MUST rewrite
+each column dataset to its new extent — typically via the `h5repack`
+utility or an equivalent rewriting tool.
+
+The same index-consistency rule that governs appends applies on
+truncation: the producer MUST update every affected search index to
+match the new `NROWS`, or delete it (and remove the corresponding
+`SEARCH_INDEX_LIST` entry on the column) before committing the new
+`NROWS` value.
+
+### In-place updates
+
+A producer MAY rewrite individual cells of the table — change the
+value at one or more row positions `< NROWS` — without altering
+`NROWS`. Producers MUST update every affected search index to reflect
+the new values, or delete it before committing the change. In-place
+updates do not benefit from the single-attribute commit point that
+`NROWS` provides; producers that require atomic semantics for
+in-place edits MUST arrange them externally (for example, by writing
+to a fresh column dataset and swapping it in under a future revision
+of this HEP, or by using application-level coordination outside HDF5).
+
+(hep001-consistency)=
 ## Consistency requirements
 
 A conformant table group satisfies all of the following at all times:
 
-1. Every column dataset (including row index columns) in the same table
-   group MUST have the same length.
-2. Every dataset in the `SEARCH_INDEXES` subgroup MUST carry a `KIND`
+1. The table group MUST carry a scalar `NROWS` attribute of datatype
+   `uint64` (see {numref}`§%s <hep001-nrows>`).
+2. Every column dataset (including row index columns) in the same table
+   group MUST have the same first-dimension extent, and that extent
+   MUST be `≥ NROWS`.
+3. Every dataset in the `SEARCH_INDEXES` subgroup MUST carry a `KIND`
    attribute defined by this HEP (or a future, registered HEP).
-3. Every reference in a column's `SEARCH_INDEX_LIST` MUST resolve to a
+4. Every reference in a column's `SEARCH_INDEX_LIST` MUST resolve to a
    search-index dataset under the table group's `SEARCH_INDEXES`
    subgroup.
-4. Every categorical column's `CATEGORIES` reference MUST resolve to a
+5. Every categorical column's `CATEGORIES` reference MUST resolve to a
    dataset satisfying {numref}`§%s <hep001-categoricals>`.
-5. `column-order`, when present, MUST list every column dataset of the
+6. `column-order`, when present, MUST list every column dataset of the
    table exactly once and MUST NOT list datasets that are not column
    datasets.
-6. Every name listed in the table group's `INDEX_COLUMNS` attribute
+7. Every name listed in the table group's `INDEX_COLUMNS` attribute
    (when present) MUST resolve to a column dataset that is a direct
    child of the table group; when `_index` is also present, it MUST
    equal `INDEX_COLUMNS[0]`.
-7. Every categorical column's fill value (see {numref}`§%s <fill-vals>`)
+8. Every categorical column's fill value (see {numref}`§%s <fill-vals>`)
    MUST NOT collide with a valid integer code in the linked categories
    dataset's index range, so that the equality test `value == fill_value`
    unambiguously denotes "missing category" rather than "valid value at
    category index *fill*."
+9. Every search-index dataset's content MUST correctly describe its
+   source column for row positions in `[0, NROWS)`. Tail entries that
+   describe positions `≥ NROWS` — for example, residue from
+   preallocation or from a prior truncation — MAY be present and
+   MUST be ignored by consumers.
 
-A producer that mutates a table (appends rows, rewrites a column, etc.)
-MUST either update the affected search indexes consistently or delete
-them before committing the mutation.
+A producer that mutates a table (appends rows, truncates, rewrites a
+column, etc.) MUST follow {numref}`§%s <write-workflow>` — either
+updating the affected search indexes consistently or deleting them
+before committing the mutation through `NROWS`.
 
 (hep001-anndata)=
 ## Interoperability with Anndata
@@ -1153,6 +1327,7 @@ that do not fit a row cell.
 | Concern | Anndata form | HEP001 form | Interop note |
 |---|---|---|---|
 | Group identification | `encoding-type = "dataframe"`, `encoding-version` | `CLASS = "COLUMN_TABLE"`, `VERSION` | A dual-ecosystem table group SHOULD carry all four. |
+| Row count | not explicit; equals first-dim extent of every column dataset | explicit scalar `NROWS` attribute (`uint64`) on the table group | A dual-ecosystem producer SHOULD set `NROWS` equal to every column's first-dim extent — i.e., no preallocation — because Anndata readers infer the row count from extent. HEP001 readers use `NROWS` regardless. |
 | Row-label naming | `_index` (scalar string) | `INDEX_COLUMNS` (1-D string array) | Write both; `_index` MUST equal `INDEX_COLUMNS[0]` (see {numref}`§%s <hep001-indexes>`). When a table has no row labels, omit both. |
 | Column ordering | `column-order` (1-D string array) | identical | No translation needed. |
 | Categorical encoding | `encoding-type = "categorical"`, `ordered` on the values dataset | identical | No translation needed. |
@@ -1287,6 +1462,10 @@ The complete set of HEP001 reserved names is listed below.
 `VERSION`
 : HEP001 revision the table conforms to.
 
+`NROWS`
+: Scalar `uint64`. Number of logical rows currently in the table. See
+  {numref}`§%s <hep001-nrows>`.
+
 `TITLE`
 : Human-readable title of the table (optional).
 
@@ -1357,6 +1536,7 @@ and no search indexes.
 /my_table                          (Group)
   CLASS             = "COLUMN_TABLE"   (ASCII, fixed length)
   VERSION           = "1.0"            (ASCII, fixed length)
+  NROWS             = N                (uint64, scalar)
   TITLE             = "Sample run"     (UTF-8)
   column-order      = ["row_id", "ts", "energy", "label"]  (UTF-8, 1-D)
   INDEX_COLUMNS     = ["row_id"]       (UTF-8, 1-D)
@@ -1402,7 +1582,7 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
 
 ```{mermaid}
 graph TD
-  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>INDEX_COLUMNS=[row_id]"]]
+  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>NROWS=N<br/>INDEX_COLUMNS=[row_id]"]]
   TG --> ri(["row_id (uint64, row index)"])
   TG --> ts(["ts (int64)"])
   TG --> en(["energy (float32)"])
