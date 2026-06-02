@@ -213,7 +213,7 @@ The following terms are used throughout this specification.
 
 Table group
 : An HDF5 group that represents one column-oriented table. Identified by the
-`CLASS` attribute (see {ref}`hep001-class`).
+`CLASS` attribute (see {numref}`§%s <hep001-class>`).
 
 (hep001-dset-name)=
 Dataset name
@@ -722,13 +722,13 @@ A column dataset MAY carry any of the following attributes.
 
 `SEARCH_INDEX_LIST`
 : One-dimensional array of HDF5 object references. Each reference points
-  to a search-index dataset (see {ref}`hep001-search-indexes`) in the
+  to a search-index dataset (see {numref}`§%s <hep001-search-indexes>`) in the
   `SEARCH_INDEXES` subgroup that accelerates queries on this column.
 
 `CATEGORIES`
 : Scalar HDF5 object reference. Used only for categorical columns. Points
   to the dataset that holds the categorical values (see
-  {ref}`hep001-categoricals`).
+  {numref}`§%s <hep001-categoricals>`).
 
 `valid_min` / `valid_max`
 : Scalar attributes of the same datatype as the column, specifying the minimum
@@ -796,8 +796,8 @@ graph LR
 (hep001-indexes)=
 ## Row index columns
 
-A row index column is a column dataset referenced by the table
-group's `INDEX_COLUMNS` attribute (see {ref}`hep001-table-group`). Row index
+A row index column is a column dataset referenced by the table group's
+`INDEX_COLUMNS` attribute (see {numref}`§%s <hep001-table-group>`). Row index
 columns supply row labels for the table as a whole — every column in the table
 is labeled by every row index column. They are ordinary column datasets in every
 other respect, and they SHOULD also appear in `column-order` like any other
