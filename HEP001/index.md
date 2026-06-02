@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: 2026-05-14
+date: 2026-06-02
 tags:
   - draft
 keywords:
@@ -612,24 +612,39 @@ property list (`H5Pset_fill_value`), placing the dataset into the
 outside the column's logical value range. A producer MAY declare that range
 explicitly with the two attributes `valid_min` and `valid_max` on the column
 dataset (each a scalar of the column's element datatype). If present, the chosen
-fill value MUST lie strictly outside `[valid_min, valid_max]`. Consumers MUST
-retrieve the fill value (`H5Dget_fill_value`) and identify missing rows with the
-equality test `value == fill_value`. The same applies even to columns that
-contain no missing values — in that case no row will compare equal to the fill
-value, and the column simply has no missing rows.
+fill value MUST lie strictly outside `[valid_min, valid_max]`.
 
-A column's fill value MUST NOT be a `NaN` bit pattern. IEEE 754 specifies that
-`NaN != NaN`, so the equality test `value == fill_value` would always return
-false against a `NaN` fill and consumers would identify zero rows as missing
-regardless of the data. Producers needing a sentinel for a floating-point
-column MUST use a non-`NaN`, non-infinite value — for example, the recommended
-`9.9692099683868690e+36` from {numref}`§%s <fill-table>` below.
+(canonical-missing-test)=
+Consumers MUST retrieve the fill value (`H5Dget_fill_value`) and identify
+missing rows with the **canonical missing-value test**:
+
+```
+missing(value, fill_value) = isnan(fill_value) ? isnan(value) : value == fill_value
+```
+
+For every column whose fill value is not a NaN bit pattern — including
+every column whose datatype is not floating-point, and every column whose
+producer chose any of the recommended fill values in
+{numref}`Table %s <fill-table>` — the `isnan(fill_value)` branch is always
+false and the test reduces to ordinary bit-equality `value == fill_value`.
+The same applies even to columns that contain no missing values — no row
+satisfies the test, and the column simply has no missing rows.
+
+For floating-point columns with a NaN bit pattern as the
+fill value, the test reduces to `isnan(value)`. IEEE 754 makes
+`NaN != NaN`, so a literal `value == fill_value` test would miss every
+fill-marked row in such columns; consumers MUST use the `isnan(value)`
+branch instead. HEP001 does not recommend NaN as a fill value — it
+conflates "the producer marked this row missing" with "the result of a
+floating-point computation was indeterminate" — but it permits NaN for
+producers who need a zero-cost round-trip with NaN-native ecosystems.
 
 For producers that have no domain-specific constraint forcing a different
 choice, the table below lists recommended fill values for each datatype
 family.
 
-(fill-table)=
+```{table} Recommended fill values
+:label: fill-table
 
 | HDF5 datatype | Recommended fill value   | Hex (canonical bit pattern) |
 |---------------|--------------------------|-----------------------------|
@@ -646,6 +661,7 @@ family.
 | fixed string  | `""`                     | n/a                         |
 | vlen string   | `""`                     | n/a                         |
 | enumeration   | `MISSING`                | n/a                         |
+```
 
 The recommended sentinels above are chosen as follows.
 
@@ -654,10 +670,21 @@ The recommended sentinels above are chosen as follows.
 that land on the type's minimum (e.g., `abs(INT*_MIN)` is undefined
 behavior in C). Unsigned sentinels are the type's maximum.
 
-**Floating point.** The `float32` and `float64` sentinel
-`9.9692099683868690e+36` is exactly representable in both widths and
-preserves bit-identity under width casts, so the spec's required
-equality test works without any rounding-tolerance gymnastics.
+**Floating point.** Two choices are acceptable:
+
+1. The recommended non-NaN sentinel `9.9692099683868690e+36`. Exactly
+   representable in both `float32` and `float64`, and preserves bit-identity
+   under width casts, so the equality branch of the canonical
+   missing-value test works without rounding-tolerance gymnastics. This
+   is the recommended choice for new tables that do not need byte-level
+   round-tripping with NaN-native ecosystems.
+2. Any NaN bit pattern (quiet, signaling, signed, with arbitrary
+   payload). The canonical missing-value test then takes the
+   `isnan(value)` branch. This choice is permitted but not recommended
+   on its own merits; producers should use it when zero-cost
+   interoperability with pandas, Anndata, NumPy, R, or other NaN-as-missing
+   ecosystems matters more than disambiguating "missing" from "result
+   of an indeterminate computation".
 
 **Strings.** The empty string is the recommended sentinel because it is
 rarely a meaningful value in practice.
@@ -905,22 +932,33 @@ declaration order:
 
 * `min` — same datatype as the source column's element type.
 * `max` — same datatype as the source column's element type.
-* `nan_count` — `uint64`. The number of NaN values in the chunk. For
+* `nan_count` — `uint64`. The number of IEEE 754 NaN values in the chunk,
+  regardless of whether NaN is the column's fill value. For
   non-floating-point columns this field MUST be present and set to 0.
-* `fill_count` — `uint64`. The number of elements in the chunk that equal
-  the column's HDF5 fill value (i.e. count of "missing" under {numref}`§%s <fill-vals>`).
+* `fill_count` — `uint64`. The number of elements in the chunk that the
+  canonical missing-value test ({numref}`§%s <fill-vals>`) classifies as
+  missing. When the column's fill value is itself a NaN bit pattern, every
+  NaN element is missing by definition, and `fill_count` equals `nan_count`
+  for that chunk; this overlap is intentional and consumers MAY rely on
+  `fill_count` alone as the chunk's missing-row count regardless of the
+  column's fill choice.
 * `n` — `uint64`. The number of logical rows (i.e., rows in
   `[0, NROWS)`; see {numref}`§%s <hep001-nrows>`) covered by this chunk.
   For every chunk other than the last, `n` equals the column's chunk
   length; for the last data-bearing chunk, `n` MAY be strictly less than
   the chunk length when `NROWS` is not a multiple of it.
 
-**Semantics:** For floating-point columns, `min` and `max` MUST ignore
-`NaN` values — if every value in the chunk is `NaN`, `min` and `max` MUST be
-set to the column's fill value and `nan_count` MUST equal `n`. For
-integer and other orderable types, `min` and `max` are the ordinary
-ordering extrema over the chunk's values, treating fill-value elements
-as missing (and excluded from the ordering) when `fill_count > 0`.
+**Semantics:** `min` and `max` are computed over only those elements of
+the chunk that the canonical missing-value test ({numref}`§%s <fill-vals>`)
+classifies as non-missing, and that are themselves orderable. For
+floating-point columns this means: NaN values are excluded (because IEEE 754
+does not order them, regardless of whether NaN is the column's fill value),
+and elements that match the column's non-NaN fill value (if any) are
+excluded. For integer and other orderable types, only elements equal to
+the column's fill value are excluded. When the chunk has no non-missing,
+orderable elements (`fill_count + nan_count == n` for floating-point
+columns, or `fill_count == n` for other orderable types), `min` and `max`
+MUST be set to the column's fill value.
 
 **Applicability:** Each `CHUNK_MINMAX` search-index dataset applies to
 exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
@@ -966,10 +1004,13 @@ whose HDF5 datatype has a HEP001-defined order, as enumerated below:
   Negative zero MUST compare equal to positive zero. `NaN` values are
   not ordered; rows whose value is `NaN` MUST be placed at the end of
   the permutation, in increasing `r` order, and the `nan_tail_length`
-  attribute MUST record the count. The `NaN` tail and the fill tail
-  are disjoint: {numref}`§%s <fill-vals>` forbids `NaN` as a fill value,
-  so no row can simultaneously satisfy "value is NaN" and
-  "value equals fill."
+  attribute MUST record the count. The NaN tail and the fill tail are
+  always disjoint by construction: a row is placed in the NaN tail if
+  its value is `NaN`, and otherwise in the fill tail if its value equals
+  a non-`NaN` fill. When the column's fill value is itself `NaN`, every
+  missing row is a `NaN` row and is placed in the `NaN` tail;
+  `fill_tail_length` is then `0`, and `nan_tail_length` equals the
+  column's total missing-row count.
 * **Boolean values:** `false` (`0x00`) sorts before `true` (`0x01`).
 * **Fixed- and variable-length strings:** lexicographic comparison over the
   UTF-8 byte sequence — i.e., **byte-wise**, with no byte-order mark and no
@@ -998,12 +1039,16 @@ The following datatypes do not have a defined sorting order, so a
   multi-field ordering);
 * array and variable-length-array datatypes.
 
-Rows whose value equals the column's fill value
-({numref}`§%s <fill-vals>`) MUST appear immediately before the NaN
-tail (if any), in increasing `r` order, and the `fill_tail_length`
-attribute MUST record the count. For datatypes that have no NaN
-concept, the NaN tail is empty (`nan_tail_length = 0`) and the
-fill-tail rows appear at the very end of the permutation.
+Rows whose value matches a non-NaN column fill value under the
+canonical missing-value test ({numref}`§%s <fill-vals>`) MUST appear
+immediately before the NaN tail (if any), in increasing `r` order,
+and the `fill_tail_length` attribute MUST record the count. For
+datatypes that have no NaN concept, the NaN tail is empty
+(`nan_tail_length = 0`) and the fill-tail rows appear at the very end
+of the permutation. When the column's fill value is itself NaN, all
+missing rows are NaN rows and are placed in the NaN tail (see the
+floating-point ordering rule above); the fill tail is then empty
+(`fill_tail_length = 0`).
 
 **Additional attributes:**
 
@@ -1110,11 +1155,14 @@ query value identically before testing the filter.
   representation in the column's storage width, packed **little-endian**.
 * **Floating-point values** (`float16`, `float32`, `float64`): the
   value's IEEE 754 binary encoding at the column's storage width, packed
-  **little-endian**. NaN values MUST NOT be inserted into a Bloom filter
-  — different NaN bit patterns would yield different filter bits and
-  break interoperability — and consumers MUST NOT query for NaN against
-  a `CHUNK_BLOOM` index. Producers MUST normalize negative zero to
-  positive zero before hashing.
+  **little-endian**. `NaN` values MUST NOT be inserted into a Bloom filter
+  — different `NaN` bit patterns would yield different filter bits and
+  break interoperability — and consumers MUST NOT query for `NaN` against
+  a `CHUNK_BLOOM` index. The rule applies whether `NaN` is a real-data
+  value in the column or the column's chosen fill value: in the latter
+  case, `NaN` elements are missing values, and missing values are by
+  convention excluded from Bloom-filter membership testing anyway.
+  Producers MUST normalize negative zero to positive zero before hashing.
 * **Boolean values:** a single byte, `0x00` for false or `0x01` for true.
 * **Fixed- and variable-length strings:** the string's **UTF-8** byte sequence,
   with **no byte-order mark** and **no Unicode normalization** (no NFC, NFD,
@@ -1300,9 +1348,9 @@ A conformant table group satisfies all of the following at all times:
    column referenced by `INDEX_COLUMNS[0]`.
 8. Every categorical column's fill value (see {numref}`§%s <fill-vals>`)
    MUST NOT collide with a valid integer code in the linked categories
-   dataset's index range, so that the equality test `value == fill_value`
-   unambiguously denotes "missing category" rather than "valid value at
-   category index *fill*."
+   dataset's index range, so that the canonical missing-value test
+   ({numref}`§%s <fill-vals>`) unambiguously denotes "missing category"
+   rather than "valid value at category index *fill*."
 9. Every search-index dataset's content MUST correctly describe its
    source column for row positions in `[0, NROWS)`. Tail entries that
    describe positions `≥ NROWS` — for example, residue from
@@ -1334,21 +1382,24 @@ that do not fit a row cell.
 | Column ordering | `column-order` (1-D string array) | identical | No translation needed. |
 | Categorical encoding | `encoding-type = "categorical"`, `ordered` on the values dataset | identical | No translation needed. |
 | Categorical missing code | `-1` (signed) or `UINT*_MAX` (unsigned) | dataset fill value ({numref}`§%s <fill-vals>`, {numref}`§%s <hep001-categoricals>`) | Producers SHOULD override the {numref}`§%s <fill-table>` default to Anndata's convention and declare the actual code range via `valid_min` / `valid_max`. |
-| Float missing value | `NaN` bit pattern | non-`NaN` sentinel ({numref}`§%s <fill-vals>`, e.g. `9.9692099683868690e+36`) | When importing from Anndata, replace every `NaN` in float columns with a non-`NaN` sentinel and set that sentinel as the dataset's fill value. |
+| Float missing value | `NaN` bit pattern | `NaN` bit pattern OR non-`NaN` sentinel (see {numref}`§%s <fill-vals>`, e.g. `9.9692099683868690e+36`) | Both are permitted. NaN as fill is a direct, zero-cost round-trip with Anndata; consumers then use the `isnan(value)` branch of the canonical missing-value test. The non-NaN sentinel is the HEP001 recommendation but requires the importer to replace every NaN in float columns with the sentinel and set that sentinel as the dataset's fill value. |
 | Nullable integer / boolean | sidecar mask dataset | column fill value ({numref}`§%s <fill-vals>`) | Avoid nullable columns, or write them in Anndata form and expose them to HEP001 consumers via the column's `description`. |
 | HEP001-only metadata | n/a | `KIND`, `SEARCH_INDEX_LIST`, `VALUES`, `valid_min`, `valid_max`, `units`, `units_vocabulary`, `description` | Anndata ignores and preserves on round-trip. |
 
 Two of the rows above hide rationale relevant to producers:
 
-**Float `NaN` as fill is forbidden.** Anndata producers commonly use a
+**Float `NaN` as fill is permitted.** Anndata producers commonly use a
 `NaN` bit pattern as the fill value for floating-point columns
-(inherited from pandas' missing-value convention). HEP001 forbids
-`NaN` as a fill value (see {numref}`§%s <fill-vals>`) because IEEE 754
-makes `NaN != NaN` and the spec's required equality test
-`value == fill_value` would never detect any missing rows.
-Re-encoding the column (changing both the metadata fill value *and*
-every `NaN` in the data) is therefore a mandatory transcoding step on
-import.
+(inherited from pandas' missing-value convention). HEP001 permits this
+directly (see {numref}`§%s <fill-vals>`): consumers detect missing rows
+through the canonical missing-value test, which takes the `isnan(value)`
+branch whenever the column's fill value is itself NaN. The round-trip
+between HEP001 and Anndata is therefore zero-cost when the producer
+keeps NaN as the fill. A producer that prefers the recommended non-NaN
+sentinel `9.9692099683868690e+36` MUST transcode the column on import —
+replacing every NaN in the data with the sentinel and setting that
+sentinel as the dataset's fill value — but HEP001 does not require this
+choice.
 
 **Nullable integer / boolean encoding differs from Anndata.** Anndata
 currently uses a nullable-integer / nullable-boolean encoding with a
