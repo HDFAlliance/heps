@@ -869,9 +869,14 @@ slowly.
 ### The `SEARCH_INDEXES` group
 
 A table group MAY contain a direct child group named `SEARCH_INDEXES`. When
-present, it MUST hold every search-index dataset for the table, and no other
-objects. It carries no required attributes of its own. Search-index datasets in
-`SEARCH_INDEXES` MAY have any name.
+present, it MUST hold every search-index dataset for the table, together with
+any *accompanying datasets* those search indexes require and no other objects.
+It carries no required attributes of its own. Datasets in `SEARCH_INDEXES` MAY
+have any name.
+
+A search-index dataset is distinguished from an accompanying dataset by the
+`KIND` attribute ({numref}`§%s <common-idx-attrs>`): every search-index
+dataset MUST carry `KIND`, and an accompanying dataset MUST NOT carry `KIND`.
 
 ### Linking columns to search indexes
 
@@ -1125,7 +1130,9 @@ on disk are exactly the bytes the producer wrote.
 
 **Accompanying values dataset:** A sibling 1-D dataset, under `SEARCH_INDEXES`,
 holds the `K` indexed values in the same datatype as the source column. Its name
-is linked from the bitmap via a scalar `VALUES` object-reference attribute.
+is linked from the bitmap via a scalar `VALUES` object-reference attribute. This
+values dataset is an *accompanying dataset*, not a search-index dataset: it MUST
+NOT carry a `KIND` attribute (see {numref}`§%s <hep001-search-indexes>`).
 
 **Additional attributes on the bitmap dataset:**
 
@@ -1385,8 +1392,10 @@ A conformant table group satisfies all of the following at all times:
 2. Every column dataset (including row index columns) in the same table
    group MUST have the same first-dimension extent, and that extent
    MUST be `≥ NROWS`.
-3. Every dataset in the `SEARCH_INDEXES` subgroup MUST carry a `KIND`
-   attribute defined by this HEP (or a future, registered HEP).
+3. Every search-index dataset in the `SEARCH_INDEXES` group MUST carry a `KIND`
+   attribute. The only other datasets permitted in the `SEARCH_INDEXES` group
+   are the accompanying datasets those search indexes require, and an
+   accompanying dataset MUST NOT carry a `KIND` attribute.
 4. Every reference in a column's `SEARCH_INDEX_LIST` MUST resolve to a
    search-index dataset under the table group's `SEARCH_INDEXES`
    subgroup.
