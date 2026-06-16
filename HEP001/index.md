@@ -1191,9 +1191,10 @@ query value identically before testing the filter.
   for clarity.
 * `hash_family` — scalar fixed-length ASCII string; for this revision
   MUST be `"murmur3_x64_128_double"`.
-* `seed` — scalar `uint64`. The seed passed to `MurmurHash3_x64_128`.
-  Default `0`. Producers MAY change the seed to mitigate adversarial
-  inputs; consumers MUST read the seed from this attribute rather than
+* `seed` — scalar `uint32`. The seed passed to `MurmurHash3_x64_128`,
+  whose reference implementation accepts a 32-bit seed. Default `0`.
+  Producers MAY change the seed to mitigate adversarial inputs;
+  consumers MUST read the seed from this attribute rather than
   assuming `0`.
 
 **Applicability:** Each `CHUNK_BLOOM` search-index dataset applies to
