@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: 2026-06-02
+date: 2026-06-16
 tags:
   - draft
 keywords:
@@ -502,15 +502,18 @@ The table group MAY carry the following attributes.
 `_index`
 : Scalar fixed-length UTF-8 string. The dataset name of the column that
   supplies the primary row labels for this table (for example, `"row_id"`).
-  Matches Anndata's `_index` exactly. When both `INDEX_COLUMNS` and
+  The name is borrowed from Anndata's `_index`. When both `INDEX_COLUMNS` and
   `_index` are present, `_index` MUST equal the dataset name of the
-  column referenced by `INDEX_COLUMNS[0]`. See {ref}`hep001-anndata`.
+  column referenced by `INDEX_COLUMNS[0]`.
 
-`encoding-type`
-: Scalar fixed-length UTF-8 string. Optional. When set to `"dataframe"`
-  (with `encoding-version` set to `"0.2.0"`), it advertises the table group
-  as an Anndata DataFrame so that Anndata readers can consume it. See
-  {ref}`hep001-anndata`.
+`encoding-type` / `encoding-version`
+: Scalar fixed-length UTF-8 strings, both optional. These names are borrowed
+  from Anndata's DataFrame convention ({numref}`§%s <hep001-shared-names>`). A
+  producer MAY set `encoding-type="dataframe"` and `encoding-version="0.2.0"`
+  if it separately wants Anndata software to attempt reading the group, but
+  HEP001 neither requires nor interprets them and makes no guarantee that the
+  result is a usable Anndata DataFrame
+  ({numref}`§%s <hep001-anndata-relationship>`).
 
 `description`
 : Scalar fixed-length UTF-8 string. Free-text description of the table's
@@ -927,7 +930,7 @@ and `cell_id` is the innermost row identifier.
 
 ```{mermaid}
 graph TD
-  TG[["table group<br/>INDEX_COLUMNS = [ref(donor_id), ref(sample_id)]"]]
+  TG[["table group<br/>INDEX_COLUMNS =<br>[ref(donor_id),<br>ref(sample_id)]"]]
   TG --> c1(["donor_id<br/>(column, outer index level)"])
   TG --> c2(["sample_id<br/>(column, inner index level)"])
   TG --> c3(["energy<br/>(data column)"])
@@ -1516,107 +1519,6 @@ column, etc.) MUST follow {numref}`§%s <write-workflow>` — either
 updating the affected search indexes consistently or deleting them
 before committing the mutation through `NROWS`.
 
-(hep001-anndata)=
-## Interoperability with Anndata
-
-HEP001 and Anndata's DataFrame layout share the same fundamental idea —
-a group with one dataset per column — and HEP001 deliberately uses
-Anndata's attribute names (`column-order`, `_index`, `encoding-type`,
-`encoding-version`) where the concepts overlap, so that a HEP001 table
-group can be aligned with Anndata's DataFrame layout. The alignment is not
-free, however: scalar and string columns need only modest extra metadata,
-but categorical columns use structurally different layouts in the two
-ecosystems and require explicit translation in both directions. The table
-below summarizes the convergence and divergence points; the paragraphs that
-follow give the rationale for the rules that do not fit a row cell.
-
-| Concern | Anndata form | HEP001 form | Interop note |
-|---|---|---|---|
-| Group identification | `encoding-type = "dataframe"`, `encoding-version` | `CLASS = "COLUMN_TABLE"`, `VERSION` | A dual-ecosystem table group SHOULD carry all four. |
-| Row count | not explicit; equals first-dim extent of every column dataset | explicit scalar `NROWS` attribute (`uint64`) on the table group | A dual-ecosystem producer SHOULD set `NROWS` equal to every column's first-dim extent — i.e., no preallocation — because Anndata readers infer the row count from extent. HEP001 readers use `NROWS` regardless. |
-| Row-label naming | `_index` (scalar string) | `INDEX_COLUMNS` (1-D array of object references) | Write both; `_index` MUST equal the dataset name of the column referenced by `INDEX_COLUMNS[0]` (see {numref}`§%s <hep001-indexes>`). When a table has no row labels, omit both. Round-trip is symmetric: a HEP001 → Anndata exporter dereferences `INDEX_COLUMNS[0]` to a name; an Anndata → HEP001 importer resolves `_index` to a dataset and writes a reference to it. |
-| Column ordering | `column-order` (1-D string array) | identical | No translation needed. |
-| Per-column element typing | each column array carries `encoding-type` (e.g. `"array"`, `"string-array"`) and `encoding-version` | HEP001 columns are bare datasets with no `encoding-type` | A dual-ecosystem producer MUST add the matching Anndata `encoding-type` / `encoding-version` to each column dataset; without it an Anndata reader will not parse the group as a dataframe. |
-| Categorical encoding | a *group* per categorical column carrying `encoding-type = "categorical"` and `ordered`, containing child arrays `codes` and `categories` | an integer column dataset plus a `CATEGORIES`-referenced categories dataset in the `CATEGORIES` subgroup ({numref}`§%s <hep001-categoricals>`) | **Different layouts; translation required in both directions** (see rationale below). An Anndata reader does not recognize a HEP001 categorical column as categorical, and HEP001 does not read an Anndata categorical group as a column. |
-| Categorical missing code | `-1` (signed) or `UINT*_MAX` (unsigned) | dataset fill value ({numref}`§%s <fill-vals>`, {numref}`§%s <hep001-categoricals>`) | Producers SHOULD override the {numref}`§%s <fill-table>` default to Anndata's convention and declare the actual code range via `valid_min` / `valid_max`. |
-| Float missing value | `NaN` bit pattern | `NaN` bit pattern OR non-`NaN` sentinel (see {numref}`§%s <fill-vals>`, e.g. `9.9692099683868690e+36`) | Both are permitted. NaN as fill is a direct, zero-cost round-trip with Anndata; consumers then use the `isnan(value)` branch of the canonical missing-value test. The non-NaN sentinel is the HEP001 recommendation but requires the importer to replace every NaN in float columns with the sentinel and set that sentinel as the dataset's fill value. |
-| Nullable integer / boolean | sidecar mask dataset | column fill value ({numref}`§%s <fill-vals>`) | Avoid nullable columns, or write them in Anndata form and expose them to HEP001 consumers via the column's `description`. |
-| HEP001-only metadata | n/a | `KIND`, `SEARCH_INDEX_LIST`, `VALUES`, `valid_min`, `valid_max`, `units`, `units_vocabulary`, `description` | Anndata ignores and preserves on round-trip. |
-
-Some of the rows above hide rationale relevant to producers:
-
-**Float `NaN` as fill is permitted.** Anndata producers commonly use a
-`NaN` bit pattern as the fill value for floating-point columns
-(inherited from pandas' missing-value convention). HEP001 permits this
-directly (see {numref}`§%s <fill-vals>`): consumers detect missing rows
-through the canonical missing-value test, which takes the `isnan(value)`
-branch whenever the column's fill value is itself NaN. The round-trip
-between HEP001 and Anndata is therefore zero-cost when the producer
-keeps NaN as the fill. A producer that prefers the recommended non-NaN
-sentinel `9.9692099683868690e+36` MUST transcode the column on import —
-replacing every NaN in the data with the sentinel and setting that
-sentinel as the dataset's fill value — but HEP001 does not require this
-choice.
-
-**Nullable integer / boolean encoding differs from Anndata.** Anndata
-currently uses a nullable-integer / nullable-boolean encoding with a
-sidecar mask dataset. HEP001 ({numref}`§%s <fill-vals>`) uses fill
-values instead. Producers targeting both ecosystems should either
-avoid nullable columns or write them in the Anndata form and expose
-them to HEP001 consumers via a column that carries a descriptive
-`description` attribute.
-
-**Categorical encoding differs from Anndata.** The two ecosystems store
-categoricals in structurally different ways. Anndata writes a *group* per
-categorical column, tagged `encoding-type = "categorical"`, that contains a
-`codes` array and a `categories` array. HEP001 instead keeps the integer
-codes as an ordinary column dataset — preserving per-column chunking and
-filters — and stores the labels in a separate categories dataset under the
-table group's `CATEGORIES` subgroup, linked by the column's `CATEGORIES`
-object reference ({numref}`§%s <hep001-categoricals>`). Neither side reads
-the other's categoricals without translation: an Anndata reader sees a
-HEP001 categorical column as a plain integer array, and a HEP001 reader sees
-an Anndata categorical group as a non-column subgroup. A dual-ecosystem
-producer must therefore pick a target — writing the column in Anndata's
-group form for Anndata consumers (and exposing it to HEP001 consumers via
-`description`), or in HEP001's form plus an Anndata exporter that rebuilds
-the `codes` / `categories` group on the way out. Earlier drafts placed an
-`encoding-type = "categorical"` attribute on the HEP001 categories dataset;
-because that does not make the column Anndata-readable, this revision drops
-it.
-
-### Required casing for dual-ecosystem producers
-
-A producer that wants its table groups to be readable by both HEP001 and
-Anndata MUST observe the casing rule {ref}`hep001-reserved-names` defines:
-
-* HEP001-owned uppercase reserved names — `CLASS`, `VERSION`, `TITLE`,
-  `KIND`, `INDEX_COLUMNS`, `SEARCH_INDEX_LIST`, `CATEGORIES`,
-  `SEARCH_INDEXES`, `VALUES`, plus every `KIND` value (`COLUMN_TABLE`,
-  `CHUNK_MINMAX`, `SORTED_ROWS`, `BITMAP`, `CHUNK_BLOOM`) — MUST be written
-  in fixed-length ASCII, UPPERCASE.
-* HEP001-owned lowercase reserved attributes — `valid_min`, `valid_max`
-  — MUST be written in lowercase, matching scientific-data convention.
-  They are reserved by HEP001 (not by Anndata), and Anndata leaves them
-  intact.
-* Anndata-shared names — the attribute names `column-order`, `_index`,
-  `encoding-type`, `encoding-version`, `ordered`, and the string values
-  `"dataframe"` and `"categorical"` — MUST be written in lowercase, exactly
-  as Anndata writes them. Uppercasing them would make the group unreadable
-  by Anndata.
-
-The two casing regimes coexist on the same group, on the same column, and
-on the same categories dataset. Producers MUST NOT case-fold either regime
-into the other.
-
-```{note}
-The lowercase Anndata names are not "spec-internal" in the same sense as
-HEP001's UPPERCASE reserved names — they are part of an external contract
-HEP001 chose to honor. A future HEP that updates the Anndata alignment
-will, if Anndata ever changes these names, update this list accordingly.
-Until then, treat the lowercase form as load-bearing.
-```
-
 (hep001-reserved-names)=
 ## Reserved names
 
@@ -1637,10 +1539,11 @@ to the specification and which were chosen by the producer of the data.
    dataset, a user-supplied attribute, or any other purpose other than the
    one this HEP assigns to it.
 
-3. Names that HEP001 deliberately shares with other ecosystems, currently
-   only with Anndata's DataFrame layout (see {ref}`hep001-anndata`), are
-   exempt from rule 1 and MUST be written exactly as those ecosystems write
-   them. They are listed in {ref}`hep001-shared-names`.
+3. Names that HEP001 deliberately borrows from other ecosystems, currently
+   only from Anndata's DataFrame layout
+   ({numref}`§%s <hep001-anndata-relationship>`), are exempt from rule 1 and
+   MUST be written exactly as those ecosystems write them. They are listed in
+   {ref}`hep001-shared-names`.
 
 4. Several attributes that align with broader scientific HDF5 community
    practice are exempt from rule 1 and MUST be written in lowercase, so that
@@ -1748,18 +1651,22 @@ values as "ignore this search index".
 (hep001-shared-names)=
 ### Names shared with Anndata
 
-The following attribute names and string values are written in **lowercase**,
-exactly as Anndata writes them, so that a single HEP001 table group can also
-be a valid Anndata DataFrame ({ref}`hep001-anndata`). They are reserved for
-their Anndata-defined meaning and MUST NOT be repurposed:
+The following attribute names and string values are borrowed from Anndata's
+DataFrame layout ({numref}`§%s <hep001-anndata-relationship>`) and are written
+in **lowercase**, exactly as Anndata writes them, so that a producer targeting
+an Anndata converter does not have to case-fold. They are reserved for their
+Anndata-defined meaning and MUST NOT be repurposed:
 
 * attribute names — `column-order`, `_index`, `encoding-type`,
   `encoding-version`, `ordered`;
 * string values — `"dataframe"` and `"categorical"` when written into an
   `encoding-type` attribute.
 
-A producer that does not target Anndata interoperability MAY omit these
-names, but if it writes them at all it MUST write them in this exact form
+Of these, HEP001 itself uses `column-order`, `_index`, and `ordered`
+({numref}`§%s <hep001-table-group>`, {numref}`§%s <hep001-boolean-attributes>`);
+`encoding-type`, `encoding-version`, and the string values are optional
+pass-through names that HEP001 does not interpret. A producer MAY omit any of
+these names, but if it writes one at all it MUST use this exact form
 (lowercase, with the hyphens and underscore as shown).
 
 ## Worked examples
@@ -1778,7 +1685,7 @@ and no search indexes.
   TITLE             = "Sample run"     (UTF-8)
   column-order      = ["row_id", "ts", "energy", "label"]  (UTF-8, 1-D)
   INDEX_COLUMNS     = [ref(row_id)]    (1-D object references)
-  _index            = "row_id"         (UTF-8; Anndata interop)
+  _index            = "row_id"         (UTF-8; primary row-label name)
 
 /my_table/row_id                   (Dataset, uint64, shape (N,))
   description       = "Globally unique event identifier."
@@ -1859,6 +1766,28 @@ graph TD
   class mm,sr,bm,bf siData
   class bv siValues
 ```
+
+(hep001-anndata-relationship)=
+## Relationship to Anndata
+
+Anndata is the most direct inspiration for HEP001: HEP001 adopts the same
+group-of-one-dataset-per-column shape and deliberately reuses several of
+Anndata's attribute names (`column-order`, `_index`, `ordered`) so that
+converters between the two are straightforward. HEP001 is **not**, however, a
+drop-in Anndata DataFrame format, and this document does not specify
+Anndata read/write conformance. The two layouts diverge on points that
+matter for typical tabular data — Anndata encodes categoricals and nullable
+columns as *subgroups* (with `codes`/`categories` or `values`/`mask`
+children) and tags every column array with an `encoding-type`, whereas
+HEP001 keeps each column as a single rank-1 dataset and records missing
+values through fill values. Because an HDF5 link resolves to one object,
+a column that Anndata stores as a subgroup cannot simultaneously be a HEP001
+column dataset. A single group can therefore satisfy both specifications
+only for the restricted case of dense numeric and variable-length string
+columns with no categorical or nullable columns; anything richer requires an
+explicit import/export step. HEP001 reserves the Anndata-derived attribute
+names ({numref}`§%s <hep001-shared-names>`) so producers may write them when
+targeting such a converter, but assigns them no HEP001 meaning.
 
 ## Security considerations
 
