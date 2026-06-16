@@ -351,6 +351,33 @@ Producers MUST NOT write the deprecated object-reference datatype
 `H5T_STD_REF_OBJ`. A consumer MAY reject, as non-conformant, any HEP001
 reference attribute whose datatype is not `H5T_STD_REF`.
 
+(hep001-boolean-attributes)=
+## Boolean attributes
+
+HDF5 has no native boolean datatype, and the wider HDF5 ecosystem has not
+converged on one encoding. HEP001 fixes a single, self-describing form so that
+boolean attributes are unambiguous on disk.
+
+Every attribute that this specification calls *boolean* MUST be stored as an
+HDF5 enumerated datatype with:
+
+* base type `H5T_STD_I8LE` (signed 8-bit integer, little-endian), and
+* exactly two members, `FALSE` mapped to `0` and `TRUE` mapped to `1`.
+
+In HDF5 DDL (as emitted by `h5dump`), the datatype is described as:
+
+```
+H5T_ENUM {
+   H5T_STD_I8LE;
+   "FALSE"            0;
+   "TRUE"             1;
+}
+```
+
+Producers MUST NOT store a HEP001 boolean as a plain integer, an `H5T_BITFIELD`,
+or a string. A consumer determines truth from the enumerated integer value (`0`
+= false, `1` = true).
+
 (hep001-table-group)=
 ## The table group
 
@@ -789,8 +816,9 @@ The categories dataset MAY:
 1. Carry a scalar UTF-8 string attribute `encoding-type` with value
    `"categorical"` (matching Anndata).
 1. Carry a scalar boolean attribute `ordered` (matching Anndata's ordered
-   categoricals). Producers MUST set `ordered` to true exactly when the
-   order of entries in the categories dataset is semantically meaningful.
+   categoricals), encoded per {numref}`§%s <hep001-boolean-attributes>`.
+   Producers MUST set `ordered` to true exactly when the order of entries
+   in the categories dataset is semantically meaningful.
 
 The categories dataset MAY appear in the table group's `column-order`,
 but consumers that present the table as a dataframe SHOULD treat it as
@@ -1101,8 +1129,9 @@ floating-point ordering rule above); the fill tail is then empty
 * `KIND` — `"SORTED_ROWS"`.
 * `nan_tail_length`, `fill_tail_length` — scalar `uint64`. Both MUST be
   present; either MAY be 0.
-* `ordered` — scalar boolean. MUST be true for `SORTED_ROWS`; reserved
-  for future indexes that permit partial orderings.
+* `ordered` — scalar boolean ({numref}`§%s <hep001-boolean-attributes>`).
+  MUST be true for `SORTED_ROWS`; reserved for future indexes that permit
+  partial orderings.
 
 **Applicability:** Each `SORTED_ROWS` search-index dataset applies to
 exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
@@ -1138,8 +1167,9 @@ NOT carry a `KIND` attribute (see {numref}`§%s <hep001-search-indexes>`).
 
 * `KIND` — `"BITMAP"`.
 * `VALUES` — scalar HDF5 object reference to the values dataset.
-* `ordered` — scalar boolean. When `true`, the entries in the values
-  dataset (linked via `VALUES`) are listed in a semantically meaningful
+* `ordered` — scalar boolean ({numref}`§%s <hep001-boolean-attributes>`).
+  When `true`, the entries in the values dataset (linked via `VALUES`) are
+  listed in a semantically meaningful
   order, for example, a numerically-sorted set of distinct values or
   an ordinal category sequence such as `["low", "medium", "high"]`.
   The bitmap's `k`-th row corresponds to the `k`-th entry of the values
