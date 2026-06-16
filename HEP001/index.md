@@ -13,7 +13,7 @@ authors:
   - name: Aleksandar Jelenak
     affiliation: HDF Group
 funding:
-  statement: This material is based upon work supported by the U.S. Department of Energy, Office of Science, Office of Fusion Energy Sciences, under Award Number​ DE-SC0024442.​
+  statement: This material is based upon work supported by the U.S. Department of Energy, Office of Science, Office of Fusion Energy Sciences, under Award Number DE-SC0024442.
   id: DE-SC0024442
 numbering:
   heading_2: true
@@ -32,7 +32,7 @@ during review. Comments and pull requests are welcome on the
 
 ```{note} Acknowledgments and disclosures
 Development of this document was supported by the U.S. Department of Energy,
-Office of Science, Office of Fusion Energy Sciences, under Award Number​ DE-SC0024442.
+Office of Science, Office of Fusion Energy Sciences, under Award Number DE-SC0024442.
 
 No contractual or commercial obligations constrain the content of this document.
 This work is contributed to the HDF community under the
