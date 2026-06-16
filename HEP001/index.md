@@ -1275,10 +1275,22 @@ SHOULD either overwrite the unused tail or extend further.
 HDF5 itself does not guarantee atomic ordering between the data writes
 of step 3, the index writes of step 4, and the attribute update of
 step 5 unless the producer issues explicit `H5Fflush` calls between
-them or uses SWMR mode. A producer that requires strong durability
+them. A producer that requires strong durability
 across a crash MUST issue an `H5Fflush` after step 4 and again after
 step 5, so that the on-disk state cannot show `NROWS = N_old + K`
 together with unwritten column data or stale indexes.
+
+```{note}
+The commit point of this workflow is a modification of the table group's
+`NROWS` *attribute*. The original HDF5 SWMR (Single-Writer/Multiple-Reader)
+feature cannot be used to publish an append this way: an SWMR writer may
+only append raw data to existing datasets along an unlimited dimension and
+MUST NOT create or modify attributes — or any other metadata — while SWMR
+writing is active. Producers that need live concurrent readers therefore
+cannot rely on classic SWMR for the `NROWS` commit. The newer VFD SWMR
+feature, which does permit attribute creation and modification, is required
+for that use case.
+```
 
 ### Preallocation
 
@@ -1589,7 +1601,7 @@ and no search indexes.
 ```
 /my_table                          (Group)
   CLASS             = "COLUMN_TABLE"   (ASCII, fixed length)
-  VERSION           = "1.0"            (ASCII, fixed length)
+  VERSION           = "1.0"          (ASCII, fixed length)
   NROWS             = N                (uint64, scalar)
   TITLE             = "Sample run"     (UTF-8)
   column-order      = ["row_id", "ts", "energy", "label"]  (UTF-8, 1-D)
