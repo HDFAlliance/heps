@@ -151,8 +151,8 @@ Columnar tools and array tools meet in the middle.
 graph TD
   F[("HDF5 File")]
   F --> R[["/ (root group)"]]
-  R --> T[["/events (table group, CLASS=COLUMN_TABLE)"]]
-  R --> I>"/images (3-D dataset, detector cube)"]
+  R --> T[["/events (table group,<br/>CLASS=COLUMN_TABLE)"]]
+  R --> I>"/images (3-D dataset,<br/>detector cube)"]
   R --> C>"/calibration (2-D dataset)"]
   T --> c1(["ts (int64)"])
   T --> c2(["energy (float32)"])
@@ -221,8 +221,10 @@ Dataset name
 HDF5 group.
 
 Column dataset
-: An HDF5 dataset of rank 1 that lives directly under a table group and
-  represents one column of the table. The dataset's name is the column name.
+: An HDF5 dataset of rank 1 that is a direct child of a table group and
+  represents one column of the table. Datasets inside the reserved
+  `CATEGORIES` and `SEARCH_INDEXES` subgroups are not column datasets. The
+  dataset's name is the column name.
 
 Row index column
 : A column dataset referenced by the table group's `INDEX_COLUMNS`
@@ -241,6 +243,11 @@ Row
 : The number of logical rows currently in the table. A scalar `uint64`
   attribute on the table group, defined in {numref}`§%s <hep001-nrows>`.
 
+Categories dataset
+: An HDF5 dataset of rank 1 stored under the `CATEGORIES` child group of a
+  table group that holds the label values backing one or more categorical
+  columns. See {ref}`hep001-categoricals`.
+
 Search index dataset
 : An HDF5 dataset stored under the `SEARCH_INDEXES` child group of a table
   group that accelerates queries over one or more column datasets. Each kind
@@ -251,8 +258,9 @@ Search index dataset
 
 A HEP001 table is an HDF5 **group** whose direct children are the table's
 columns (one or more of which MAY be designated as row index columns via
-the table group's `INDEX_COLUMNS` attribute) and, optionally, a reserved
-`SEARCH_INDEXES` subgroup that holds query-acceleration structures. The
+the table group's `INDEX_COLUMNS` attribute) and, optionally, two reserved
+subgroups: `CATEGORIES`, holding the label datasets that back categorical
+columns, and `SEARCH_INDEXES`, holding query-acceleration structures. The
 table's authoritative row count lives in the table group's `NROWS`
 attribute (see {numref}`§%s <hep001-nrows>`); every column dataset has
 the same first-dimension extent, and rows `[0, NROWS)` are the table's
@@ -262,7 +270,7 @@ data.
 flowchart TD
   subgraph Table_Group [Table Group]
     direction LR
-    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE', VERSION='1.0'<br/>NROWS=N, INDEX_COLUMNS=[ref(row_id)]"]]
+    TG[["/my_table (table group)<br/>CLASS='COLUMN_TABLE',<br/>VERSION='1.0'<br/>NROWS=N,<br/>INDEX_COLUMNS=[ref(row_id)]   "]]
 
     %% By connecting TG to these in order, and them to each other invisibly,
     %% we force a more structured layout.
@@ -270,9 +278,16 @@ flowchart TD
     c1(["ts<br>(1-D column dataset)"])
     c2(["energy<br>(1-D column dataset)"])
     c3(["label<br>(1-D column dataset,<br/>categorical)"])
-    c4>"label__CATEGORIES<br>(1-D dataset)"]
+
+    TG -.->|"INDEX_COLUMNS"| c0
 
     c0 ~~~ c1 ~~~ c2 ~~~ c3
+  end
+
+  subgraph Categories [Categories]
+    direction TB
+    CG[["/my_table/CATEGORIES (group)"]]
+    cc>"label__CATEGORIES<br>(1-D categories dataset)"]
   end
 
   subgraph Search_Indexes [Search Indexes]
@@ -293,8 +308,10 @@ flowchart TD
   TG --> c1
   TG --> c2
   TG --> c3
-  TG --> c4
+  TG -->|"subgroup"| CG
   TG -->|"subgroup"| SI
+
+  CG --> cc
 
   SI --> mm
   SI --> bf
@@ -303,7 +320,7 @@ flowchart TD
   SI --> bv
 
   %% Dotted Line Connections
-  c3 -.->|"CATEGORIES"| c4
+  c3 -.->|"CATEGORIES"| cc
   bm -.->|"VALUES"| bv
   c1 -.->|"SEARCH_INDEX_LIST"| mm
   c1 -.->|"SEARCH_INDEX_LIST"| bf
@@ -313,19 +330,22 @@ flowchart TD
   %% Styling
   classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
   classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
+  classDef catGroup   fill:#F5E2D0,stroke:#C59D85,stroke-width:2px,color:#000
   classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
   classDef indexCol   fill:#FAD4E1,stroke:#D08FB0,stroke-width:1px,color:#000
   classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
   classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
   classDef siValues   fill:#E8F3E0,stroke:#A8C088,stroke-width:1px,color:#000
   style Table_Group fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
+  style Categories fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
   style Search_Indexes fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
 
   class TG tableGroup
   class SI siGroup
+  class CG catGroup
   class c0 indexCol
   class c1,c2,c3 dataCol
-  class c4 catData
+  class cc catData
   class mm,sr,bm,bf siData
   class bv siValues
 ```
@@ -340,12 +360,12 @@ dataset ({ref}`hep001-search-indexes`).
 
 Several HEP001 attributes link objects within a table group by HDF5 object
 reference: `INDEX_COLUMNS` ({numref}`§%s <hep001-table-group>`), `CATEGORIES`
-({numref}`§%s <hep001-categoricals>`), `SEARCH_INDEX_LIST` ({numref}`§%s
-<hep001-search-indexes>`), and `VALUES` ({numref}`§%s <bitmap>`). Every such
-reference MUST use the HDF5 standard reference datatype `H5T_STD_REF`
-(introduced in HDF5 1.12). `H5T_STD_REF` is a unified datatype that can carry
-object, dataset-region, and attribute references (so future HEP revisions can
-introduce finer-grained linkages without a new on-disk reference format).
+({numref}`§%s <hep001-categoricals>`), `SEARCH_INDEX_LIST` ({numref}`§%s <hep001-search-indexes>`),
+and `VALUES` ({numref}`§%s <bitmap>`). Every such reference MUST use the HDF5
+standard reference datatype `H5T_STD_REF` (introduced in HDF5 1.12).
+`H5T_STD_REF` is a unified datatype that can carry object, dataset-region, and
+attribute references (so future HEP revisions can introduce finer-grained
+linkages without a new on-disk reference format).
 
 Producers MUST NOT write the deprecated object-reference datatype
 `H5T_STD_REF_OBJ`. A consumer MAY reject, as non-conformant, any HEP001
@@ -369,8 +389,8 @@ In HDF5 DDL (as emitted by `h5dump`), the datatype is described as:
 ```
 H5T_ENUM {
    H5T_STD_I8LE;
-   "FALSE"            0;
-   "TRUE"             1;
+   "FALSE"    0;
+   "TRUE"     1;
 }
 ```
 
@@ -409,8 +429,17 @@ HDF5 string conventions.
 Every HEP001 table group MUST carry a scalar, fixed-length ASCII attribute named
 `VERSION` whose value is the HEP001 revision the table conforms to. Producers
 MUST size the attribute to hold the value being written. For this revision the
-value is `"1.0"`. HEP001 consumers MUST interpret these values according to the
-[SemVer] specification.
+value is `"1.0"`.
+
+HEP001 uses a two-component `MAJOR.MINOR` version with the major/minor semantics
+of [Semantic Versioning][SemVer]: `MAJOR` increments on a backward-incompatible
+change to the data model (one an existing conformant consumer can no longer
+read), and `MINOR` on a backward-compatible addition. HEP001 omits SemVer's
+third (`PATCH`) component deliberately since it would carry no actionable
+meaning. A consumer that prefers a SemVer-style triple MAY read an absent
+`PATCH` component as `0` — so `"1.0"` is equivalent to `"1.0.0"`. Consumers MUST
+compare `VERSION` values numerically and MUST refuse to process a table whose `MAJOR`
+exceeds the highest `MAJOR` they implement.
 
 [SemVer]: https://semver.org/
 
@@ -479,11 +508,9 @@ The table group MAY carry the following attributes.
 
 `encoding-type`
 : Scalar fixed-length UTF-8 string. Optional. When set to `"dataframe"`
-  (and `encoding-version` to `"0.2.0"` or another value the producer
-  chooses), it advertises the table group as an Anndata DataFrame so that
-  Anndata readers can consume it. The same attribute name also appears
-  on categories datasets with value `"categorical"` (see
-  {ref}`hep001-categoricals` and {ref}`hep001-anndata`).
+  (with `encoding-version` set to `"0.2.0"`), it advertises the table group
+  as an Anndata DataFrame so that Anndata readers can consume it. See
+  {ref}`hep001-anndata`.
 
 `description`
 : Scalar fixed-length UTF-8 string. Free-text description of the table's
@@ -541,28 +568,21 @@ graph TD
 A table group is the complete representation of a single column-oriented
 table. Every HDF5 object — group, dataset, named datatype, or link —
 that is a descendant of the table group MUST exist solely in service of
-the data model defined by this revision of HEP001.
+the data model defined here.
 
-For this revision of HEP001, the only objects permitted anywhere in the
-HDF5 hierarchy below a table group are:
+The only objects permitted anywhere in the HDF5 hierarchy below a table group
+are:
 
-* the column datasets of the table ({ref}`hep001-columns`), which MAY
-  include row index columns designated by the table group's
-  `INDEX_COLUMNS` attribute ({ref}`hep001-indexes`);
-* the categories datasets backing any categorical columns
+* the column datasets of the table ({ref}`hep001-columns`), which MAY include
+  row index columns designated by the table group's `INDEX_COLUMNS` attribute
+  ({ref}`hep001-indexes`);
+* the reserved `CATEGORIES` subgroup and everything it contains
   ({ref}`hep001-categoricals`);
 * the reserved `SEARCH_INDEXES` subgroup and everything it contains
   ({ref}`hep001-search-indexes`).
 
-Any descendant of a table group that does not match one of the
-categories above is non-conformant under this revision of HEP001.
-
-This whitelist may be extended by future revisions of HEP001 or by
-future HEPs that build on it; any such extension MUST itself exist
-solely in service of the data model. A producer following this revision
-MUST NOT extend the whitelist at its own discretion.
-
-In particular, a producer MUST NOT place under a table group:
+Any descendant of a table group that does not match one of the categories above
+is non-conformant. A producer MUST NOT place under a table group:
 
 * unrelated tables, including other HEP001 table groups;
 * multidimensional array datasets that are not derived from, or
@@ -614,6 +634,23 @@ permitted. Producers MUST NOT use any HEP001 reserved name
 ({ref}`hep001-reserved-names-list`) as a column name. Producers SHOULD also
 avoid names that begin with an underscore, which are reserved for
 Anndata-aligned attribute names (`_index`) and may be claimed by future HEPs.
+
+(hep001-column-discovery)=
+### Column discovery
+
+The only HDF5 datasets that are direct children of a table group are its column
+datasets: categories datasets live one level down inside the `CATEGORIES`
+subgroup ({numref}`§%s <hep001-categoricals>`), and search-index datasets inside
+the `SEARCH_INDEXES` subgroup ({numref}`§%s <hep001-search-indexes>`). A
+consumer therefore enumerates a table's columns as exactly the rank-1 datasets
+that are direct children of the table group; the `CATEGORIES` and
+`SEARCH_INDEXES` children are groups, not datasets, and are skipped
+automatically.
+
+When `column-order` ({numref}`§%s <hep001-table-group>`) is present it lists
+exactly these column datasets and fixes their order; when absent, the set of
+columns is still fully determined by this rule, and only their order is
+implementation-defined.
 
 ### Datatypes
 
@@ -796,44 +833,63 @@ A column dataset MAY carry any of the following attributes.
 (hep001-categoricals)=
 ### Categorical columns
 
-A categorical column stores integer codes that index into a separate categories
-dataset holding the actual values.
+A categorical column stores integer codes that index into a separate
+*categories dataset* holding the actual label values. The code at row `i`
+is the zero-based position of that row's label in the categories dataset.
+
+#### The `CATEGORIES` group
+
+A table group MAY contain a direct child group named `CATEGORIES`. When
+present, it MUST hold every categories dataset for the table, and no other
+objects. It carries no required attributes of its own. Categories datasets
+in `CATEGORIES` MAY have any name; the binding between a column and its
+categories dataset is the column's `CATEGORIES` object reference
+({numref}`§%s <hep001-object-references>`), never a parsed name.
+
+#### Categorical column requirements
 
 A categorical column MUST:
 
 1. Have an integer datatype (any width, signed or unsigned). The column's
    missing value (the dataset's fill value) denotes a missing category.
 2. Carry a scalar `CATEGORIES` attribute whose value is an HDF5 object
-   reference pointing to the categories dataset.
+   reference resolving to a categories dataset in the table group's
+   `CATEGORIES` subgroup.
 
-The categories dataset MUST:
+A categories dataset MUST:
 
-1. Live directly under the same table group.
-1. Have rank 1, and any datatype appropriate to the category values.
+1. Live directly under the table group's `CATEGORIES` subgroup.
+2. Have rank 1, with any datatype appropriate to the label values.
 
-The categories dataset MAY:
+A categories dataset MAY:
 
-1. Carry a scalar UTF-8 string attribute `encoding-type` with value
-   `"categorical"` (matching Anndata).
 1. Carry a scalar boolean attribute `ordered` (matching Anndata's ordered
    categoricals), encoded per {numref}`§%s <hep001-boolean-attributes>`.
    Producers MUST set `ordered` to true exactly when the order of entries
    in the categories dataset is semantically meaningful.
+2. Back more than one categorical column. Several categorical columns that
+   share a common label set MAY reference the same categories dataset
+   through their `CATEGORIES` attributes; producers need not duplicate a
+   shared code book.
 
-The categories dataset MAY appear in the table group's `column-order`,
-but consumers that present the table as a dataframe SHOULD treat it as
-metadata of its linked column rather than as a standalone column.
+A categories dataset is not a column dataset: it does not count toward the
+table's columns, and it MUST NOT appear in the table group's `column-order`
+({numref}`§%s <hep001-consistency>`).
 
 ```{mermaid}
 graph LR
-  col(["label<br/>(int8)<br/>CATEGORIES &rarr; label__CATEGORIES"])
-  cat>"label__CATEGORIES<br/>(fixed UTF-8)<br/>encoding‑type=&quot;categorical&quot;<br/>ordered=false"]
+  col(["/my_table/label<br/>(int8 column)<br/>CATEGORIES &rarr; CATEGORIES/label__CATEGORIES"])
+  cg[["/my_table/CATEGORIES<br/>(group)"]]
+  cat>"label__CATEGORIES<br/>(fixed UTF-8)<br/>ordered=false"]
+  cg --> cat
   col -- object ref --> cat
 
-  classDef dataCol fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
-  classDef catData fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
+  classDef dataCol  fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+  classDef catGroup fill:#F5E2D0,stroke:#C59D85,stroke-width:2px,color:#000
+  classDef catData  fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
 
   class col dataCol
+  class cg catGroup
   class cat catData
 ```
 
@@ -1430,10 +1486,15 @@ A conformant table group satisfies all of the following at all times:
    search-index dataset under the table group's `SEARCH_INDEXES`
    subgroup.
 5. Every categorical column's `CATEGORIES` reference MUST resolve to a
-   dataset satisfying {numref}`§%s <hep001-categoricals>`.
+   categories dataset in the table group's `CATEGORIES` subgroup
+   ({numref}`§%s <hep001-categoricals>`). The `CATEGORIES` subgroup, when
+   present, MUST contain only categories datasets, and every categories
+   dataset MUST be referenced by at least one categorical column's
+   `CATEGORIES` attribute.
 6. `column-order`, when present, MUST list every column dataset of the
-   table exactly once and MUST NOT list datasets that are not column
-   datasets.
+   table exactly once and MUST NOT list any dataset that is not a column
+   dataset (in particular, not a categories dataset or a search-index
+   dataset).
 7. Every reference in the table group's `INDEX_COLUMNS` attribute
    (when present) MUST resolve to a column dataset that is a direct
    child of the table group and MUST NOT be a null reference; when
@@ -1462,10 +1523,12 @@ HEP001 and Anndata's DataFrame layout share the same fundamental idea —
 a group with one dataset per column — and HEP001 deliberately uses
 Anndata's attribute names (`column-order`, `_index`, `encoding-type`,
 `encoding-version`) where the concepts overlap, so that a HEP001 table
-group can be made readable by an Anndata consumer with minimal extra
-metadata. The table below summarizes the convergence and divergence
-points; the paragraphs that follow give the rationale for the rules
-that do not fit a row cell.
+group can be aligned with Anndata's DataFrame layout. The alignment is not
+free, however: scalar and string columns need only modest extra metadata,
+but categorical columns use structurally different layouts in the two
+ecosystems and require explicit translation in both directions. The table
+below summarizes the convergence and divergence points; the paragraphs that
+follow give the rationale for the rules that do not fit a row cell.
 
 | Concern | Anndata form | HEP001 form | Interop note |
 |---|---|---|---|
@@ -1473,13 +1536,14 @@ that do not fit a row cell.
 | Row count | not explicit; equals first-dim extent of every column dataset | explicit scalar `NROWS` attribute (`uint64`) on the table group | A dual-ecosystem producer SHOULD set `NROWS` equal to every column's first-dim extent — i.e., no preallocation — because Anndata readers infer the row count from extent. HEP001 readers use `NROWS` regardless. |
 | Row-label naming | `_index` (scalar string) | `INDEX_COLUMNS` (1-D array of object references) | Write both; `_index` MUST equal the dataset name of the column referenced by `INDEX_COLUMNS[0]` (see {numref}`§%s <hep001-indexes>`). When a table has no row labels, omit both. Round-trip is symmetric: a HEP001 → Anndata exporter dereferences `INDEX_COLUMNS[0]` to a name; an Anndata → HEP001 importer resolves `_index` to a dataset and writes a reference to it. |
 | Column ordering | `column-order` (1-D string array) | identical | No translation needed. |
-| Categorical encoding | `encoding-type = "categorical"`, `ordered` on the values dataset | identical | No translation needed. |
+| Per-column element typing | each column array carries `encoding-type` (e.g. `"array"`, `"string-array"`) and `encoding-version` | HEP001 columns are bare datasets with no `encoding-type` | A dual-ecosystem producer MUST add the matching Anndata `encoding-type` / `encoding-version` to each column dataset; without it an Anndata reader will not parse the group as a dataframe. |
+| Categorical encoding | a *group* per categorical column carrying `encoding-type = "categorical"` and `ordered`, containing child arrays `codes` and `categories` | an integer column dataset plus a `CATEGORIES`-referenced categories dataset in the `CATEGORIES` subgroup ({numref}`§%s <hep001-categoricals>`) | **Different layouts; translation required in both directions** (see rationale below). An Anndata reader does not recognize a HEP001 categorical column as categorical, and HEP001 does not read an Anndata categorical group as a column. |
 | Categorical missing code | `-1` (signed) or `UINT*_MAX` (unsigned) | dataset fill value ({numref}`§%s <fill-vals>`, {numref}`§%s <hep001-categoricals>`) | Producers SHOULD override the {numref}`§%s <fill-table>` default to Anndata's convention and declare the actual code range via `valid_min` / `valid_max`. |
 | Float missing value | `NaN` bit pattern | `NaN` bit pattern OR non-`NaN` sentinel (see {numref}`§%s <fill-vals>`, e.g. `9.9692099683868690e+36`) | Both are permitted. NaN as fill is a direct, zero-cost round-trip with Anndata; consumers then use the `isnan(value)` branch of the canonical missing-value test. The non-NaN sentinel is the HEP001 recommendation but requires the importer to replace every NaN in float columns with the sentinel and set that sentinel as the dataset's fill value. |
 | Nullable integer / boolean | sidecar mask dataset | column fill value ({numref}`§%s <fill-vals>`) | Avoid nullable columns, or write them in Anndata form and expose them to HEP001 consumers via the column's `description`. |
 | HEP001-only metadata | n/a | `KIND`, `SEARCH_INDEX_LIST`, `VALUES`, `valid_min`, `valid_max`, `units`, `units_vocabulary`, `description` | Anndata ignores and preserves on round-trip. |
 
-Two of the rows above hide rationale relevant to producers:
+Some of the rows above hide rationale relevant to producers:
 
 **Float `NaN` as fill is permitted.** Anndata producers commonly use a
 `NaN` bit pattern as the fill value for floating-point columns
@@ -1501,6 +1565,25 @@ values instead. Producers targeting both ecosystems should either
 avoid nullable columns or write them in the Anndata form and expose
 them to HEP001 consumers via a column that carries a descriptive
 `description` attribute.
+
+**Categorical encoding differs from Anndata.** The two ecosystems store
+categoricals in structurally different ways. Anndata writes a *group* per
+categorical column, tagged `encoding-type = "categorical"`, that contains a
+`codes` array and a `categories` array. HEP001 instead keeps the integer
+codes as an ordinary column dataset — preserving per-column chunking and
+filters — and stores the labels in a separate categories dataset under the
+table group's `CATEGORIES` subgroup, linked by the column's `CATEGORIES`
+object reference ({numref}`§%s <hep001-categoricals>`). Neither side reads
+the other's categoricals without translation: an Anndata reader sees a
+HEP001 categorical column as a plain integer array, and a HEP001 reader sees
+an Anndata categorical group as a non-column subgroup. A dual-ecosystem
+producer must therefore pick a target — writing the column in Anndata's
+group form for Anndata consumers (and exposing it to HEP001 consumers via
+`description`), or in HEP001's form plus an Anndata exporter that rebuilds
+the `codes` / `categories` group on the way out. Earlier drafts placed an
+`encoding-type = "categorical"` attribute on the HEP001 categories dataset;
+because that does not make the column Anndata-readable, this revision drops
+it.
 
 ### Required casing for dual-ecosystem producers
 
@@ -1596,6 +1679,13 @@ The complete set of HEP001 reserved names is listed below.
 
 #### Group names
 
+`CATEGORIES`
+: The reserved subgroup of a table group that holds every categories dataset
+  for the table. See {ref}`hep001-categoricals`. The token `CATEGORIES` names
+  both this group and the column attribute of the same name below; the two are
+  unambiguous because one is an HDF5 link name and the other an attribute name,
+  but producers should be aware of the overload.
+
 `SEARCH_INDEXES`
 : The reserved subgroup of a table group that holds every search-index dataset
   for the table. See {ref}`hep001-search-indexes`.
@@ -1627,7 +1717,9 @@ The complete set of HEP001 reserved names is listed below.
   this column.
 
 `CATEGORIES`
-: Object reference to the categories dataset that backs a categorical column.
+: Object reference to the categories dataset, in the table group's
+  `CATEGORIES` subgroup, that backs a categorical column. Shares its token
+  with the `CATEGORIES` group above.
 
 `valid_min`, `valid_max` *(lowercase, by exception)*
 : Inclusive lower and upper bounds of the column's logical value range.
@@ -1681,7 +1773,7 @@ and no search indexes.
 ```
 /my_table                          (Group)
   CLASS             = "COLUMN_TABLE"   (ASCII, fixed length)
-  VERSION           = "1.0"          (ASCII, fixed length)
+  VERSION           = "1.0"            (ASCII, fixed length)
   NROWS             = N                (uint64, scalar)
   TITLE             = "Sample run"     (UTF-8)
   column-order      = ["row_id", "ts", "energy", "label"]  (UTF-8, 1-D)
@@ -1701,10 +1793,11 @@ and no search indexes.
 
 /my_table/label                    (Dataset, int8, shape (N,))
   description       = "Class label."
-  CATEGORIES        = ref(label__CATEGORIES)
+  CATEGORIES        = ref(CATEGORIES/label__CATEGORIES)
 
-/my_table/label__CATEGORIES        (Dataset, vlen UTF-8, shape (3,))
-  encoding-type     = "categorical"
+/my_table/CATEGORIES               (Group)
+
+/my_table/CATEGORIES/label__CATEGORIES   (Dataset, vlen UTF-8, shape (3,))
   ordered           = false
 ```
 
@@ -1733,13 +1826,15 @@ graph TD
   TG --> ts(["ts (int64)"])
   TG --> en(["energy (float32)"])
   TG --> lb(["label (int8, categorical)"])
-  TG --> lc>"label__CATEGORIES (vlen UTF-8)"]
+  TG --> CG[["CATEGORIES"]]
   TG --> SI[["SEARCH_INDEXES"]]
+  CG --> lc>"label__CATEGORIES (vlen UTF-8)"]
   SI --> mm>"ts__chunk_minmax<br/>KIND=CHUNK_MINMAX"]
   SI --> sr>"energy__sorted_rows<br/>KIND=SORTED_ROWS"]
   SI --> bm>"label__bitmap<br/>KIND=BITMAP"]
   SI --> bv>"label__bitmap__VALUES"]
   SI --> bf>"ts__chunk_bloom<br/>KIND=CHUNK_BLOOM"]
+  lb -.->|"CATEGORIES"| lc
   ts -.->|"SEARCH_INDEX_LIST"| mm
   ts -.->|"SEARCH_INDEX_LIST"| bf
   en -.->|"SEARCH_INDEX_LIST"| sr
@@ -1748,6 +1843,7 @@ graph TD
 
   classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
   classDef siGroup    fill:#E5DAF5,stroke:#9D85C5,stroke-width:2px,color:#000
+  classDef catGroup   fill:#F5E2D0,stroke:#C59D85,stroke-width:2px,color:#000
   classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
   classDef indexCol   fill:#FAD4E1,stroke:#D08FB0,stroke-width:1px,color:#000
   classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
@@ -1756,6 +1852,7 @@ graph TD
 
   class TG tableGroup
   class SI siGroup
+  class CG catGroup
   class ri indexCol
   class ts,en,lb dataCol
   class lc catData
