@@ -869,6 +869,21 @@ search-index dataset applies to, scan the column datasets of the table
 group and identify the one whose `SEARCH_INDEX_LIST` references that
 search-index dataset.
 
+```{note}
+The dataset names used throughout this specification's examples and
+diagrams — `ts__chunk_minmax`, `energy__sorted_rows`, `label__CATEGORIES`,
+`label__bitmap__VALUES`, and similar `<column>__<role>` forms — are an
+illustrative convention only. HEP001 assigns them no meaning: a
+search-index dataset MAY have any name (see above), and a categories
+dataset's name is likewise unconstrained ({ref}`hep001-categoricals`).
+The authoritative linkage between a column and its search indexes,
+categories dataset, or values dataset is always the relevant HDF5 object
+reference (`SEARCH_INDEX_LIST`, `CATEGORIES`, `VALUES`), never a parsed
+name. Because column names are arbitrary UTF-8 and MAY themselves contain
+`__`, consumers MUST NOT infer any association from dataset names and MUST
+follow the object references instead.
+```
+
 ```{mermaid}
 graph LR
   C1(["ts (column)<br/>SEARCH_INDEX_LIST &rarr; ts__chunk_minmax"])
@@ -893,7 +908,7 @@ attribute `KIND` whose value is one of the strings defined below:
 
 | `KIND` value         | Purpose                                     | Defined in                   |
 |----------------------|---------------------------------------------|------------------------------|
-| `CHUNK_MINMAX`       | Per-chunk min and max of a numeric column   | {numref}`§%s <chunk-minmax>` |
+| `CHUNK_MINMAX`       | Per-chunk min and max of an orderable column | {numref}`§%s <chunk-minmax>` |
 | `SORTED_ROWS`        | Row-position permutation of a column        | {numref}`§%s <sorted-row>`   |
 | `BITMAP`             | Per-value bitmap of a low-cardinality col.  | {numref}`§%s <bitmap>`       |
 | `CHUNK_BLOOM`        | Per-chunk Bloom filter of a column          | {numref}`§%s <bloom>`        |
@@ -914,9 +929,16 @@ purely informational.
 (chunk-minmax)=
 ### Chunk min/max search index (`KIND = CHUNK_MINMAX`)
 
-A chunk min/max index accelerates range and equality predicates over a
-numeric column by letting the engine skip chunks whose value range does
-not overlap the predicate.
+A chunk min/max index accelerates range and equality predicates over an
+orderable column by letting the engine skip chunks whose value range does
+not overlap the predicate. The column's datatype MUST have a HEP001-defined
+order — the same orders enumerated for `SORTED_ROWS` under *Ordering* in
+{numref}`§%s <sorted-row>` (integers, floating-point, boolean, strings,
+opaque, and enumerations) — and `min` and `max` are computed under that
+order. The datatypes that `SORTED_ROWS` excludes for lack of a defined
+order (object and region references, compound, array, and
+variable-length-array datatypes) likewise MUST NOT carry a `CHUNK_MINMAX`
+index.
 
 **Shape:** The search-index dataset is 1-D with length equal to the number of
 chunks of the source column dataset that contain logical-table rows:
@@ -962,7 +984,10 @@ MUST be set to the column's fill value.
 
 **Applicability:** Each `CHUNK_MINMAX` search-index dataset applies to
 exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
-references it. A producer MAY build separate `CHUNK_MINMAX` indexes
+references it. The column's HDF5 datatype MUST have a HEP001-defined
+order, as enumerated for `SORTED_ROWS` under *Ordering*
+({numref}`§%s <sorted-row>`); otherwise no `CHUNK_MINMAX` index is
+permitted. A producer MAY build separate `CHUNK_MINMAX` indexes
 for several columns, but a single search-index dataset MUST NOT cover
 multiple columns because chunks of different columns are independent.
 
