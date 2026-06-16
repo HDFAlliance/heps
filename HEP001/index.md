@@ -335,6 +335,22 @@ The rest of this document specifies each building block: the table group
 index columns ({ref}`hep001-indexes`), and the four kinds of search-index
 dataset ({ref}`hep001-search-indexes`).
 
+(hep001-object-references)=
+## Object references
+
+Several HEP001 attributes link objects within a table group by HDF5 object
+reference: `INDEX_COLUMNS` ({numref}`§%s <hep001-table-group>`), `CATEGORIES`
+({numref}`§%s <hep001-categoricals>`), `SEARCH_INDEX_LIST` ({numref}`§%s
+<hep001-search-indexes>`), and `VALUES` ({numref}`§%s <bitmap>`). Every such
+reference MUST use the HDF5 standard reference datatype `H5T_STD_REF`
+(introduced in HDF5 1.12). `H5T_STD_REF` is a unified datatype that can carry
+object, dataset-region, and attribute references (so future HEP revisions can
+introduce finer-grained linkages without a new on-disk reference format).
+
+Producers MUST NOT write the deprecated object-reference datatype
+`H5T_STD_REF_OBJ`. A consumer MAY reject, as non-conformant, any HEP001
+reference attribute whose datatype is not `H5T_STD_REF`.
+
 (hep001-table-group)=
 ## The table group
 
