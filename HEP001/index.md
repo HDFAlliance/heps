@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: 2026-06-16
+date: 2026-07-06
 tags:
   - draft
 keywords:
@@ -178,6 +178,8 @@ HEP001 specifies:
 * the structure of a group that holds a column-oriented table,
 * the identifying attributes that let software recognize such a group,
 * how individual columns are represented as HDF5 datasets,
+* how columns whose row values are variable-length lists are represented
+  as HDF5 groups, to arbitrary nesting depth,
 * how row-label indexes relate columns and the table group,
 * how search indexes accelerate queries over column values, including a
   normative chunk-min/max index and framework definitions for sorted-row,
@@ -223,8 +225,19 @@ HDF5 group.
 Column dataset
 : An HDF5 dataset of rank 1 that is a direct child of a table group and
   represents one column of the table. Datasets inside the reserved
-  `CATEGORIES` and `SEARCH_INDEXES` subgroups are not column datasets. The
-  dataset's name is the column name.
+  `CATEGORIES` and `SEARCH_INDEXES` subgroups, and datasets inside list
+  column groups, are not column datasets. The dataset's name is the column
+  name.
+
+List column
+: An HDF5 group that is a direct child of a table group, carries
+  `CLASS="LIST_COLUMN"`, and represents one column whose row values are
+  variable-length lists. The group's name is the column name. See
+  {ref}`hep001-list-columns`.
+
+Column
+: A column dataset or a list column group. Where this specification says
+  "column" without qualification, the statement applies to both.
 
 Row index column
 : A column dataset referenced by the table group's `INDEX_COLUMNS`
@@ -256,15 +269,19 @@ Search index dataset
 
 ## Data model overview
 
-A HEP001 table is an HDF5 **group** whose direct children are the table's
-columns (one or more of which MAY be designated as row index columns via
-the table group's `INDEX_COLUMNS` attribute) and, optionally, two reserved
-subgroups: `CATEGORIES`, holding the label datasets that back categorical
-columns, and `SEARCH_INDEXES`, holding query-acceleration structures. The
-table's authoritative row count lives in the table group's `NROWS`
-attribute (see {numref}`§%s <hep001-nrows>`); every column dataset has
-the same first-dimension extent, and rows `[0, NROWS)` are the table's
-data.
+A HEP001 table is an HDF5 group whose direct children are the table's
+columns — rank-1 column datasets (one or more of which MAY be designated
+as row index columns via the table group's `INDEX_COLUMNS` attribute) and
+optionally:
+
+* list column groups holding variable-length list values
+({ref}`hep001-list-columns`),
+* two reserved subgroups: `CATEGORIES`, with the label datasets that back
+categorical columns, and `SEARCH_INDEXES`, with query-acceleration structures.
+
+The table's authoritative row count lives in the table group's `NROWS` attribute
+(see {numref}`§%s <hep001-nrows>`); every column dataset has the same
+first-dimension extent, and rows `[0, NROWS)` are the table's data.
 
 ```{mermaid}
 flowchart TD
@@ -351,8 +368,9 @@ flowchart TD
 ```
 
 The rest of this document specifies each building block: the table group
-({ref}`hep001-table-group`), column datasets ({ref}`hep001-columns`), row
-index columns ({ref}`hep001-indexes`), and the four kinds of search-index
+({ref}`hep001-table-group`), column datasets ({ref}`hep001-columns`), list
+columns ({ref}`hep001-list-columns`), row index columns
+({ref}`hep001-indexes`), and the four kinds of search-index
 dataset ({ref}`hep001-search-indexes`).
 
 (hep001-object-references)=
@@ -487,13 +505,16 @@ The table group MAY carry the following attributes.
   [ref(donor_id), ref(sample_id), ref(cell_id)]`. An empty array or absent
   attribute means the table has no row labels and rows are positional only.
   Every reference MUST resolve to a column dataset that is a direct child of
-  the table group and MUST NOT be a null reference. Row index columns apply
+  the table group and MUST NOT be a null reference; a list column
+  ({ref}`hep001-list-columns`) MUST NOT be referenced, because lists have
+  no HEP001-defined order. Row index columns apply
   to the table as a whole — every column in the table is labeled by them.
   See {ref}`hep001-indexes`.
 
 `column-order`
 : One-dimensional fixed-length UTF-8 string attribute whose elements are
-  the names of the column datasets in their logical order. When present,
+  the names of the table's columns — column datasets and list columns
+  alike — in their logical order. When present,
   it fully determines the column order presented to users; when absent,
   the logical column order is implementation-defined. Producers SHOULD
   write `column-order` whenever a table has more than one column. The
@@ -579,6 +600,8 @@ are:
 * the column datasets of the table ({ref}`hep001-columns`), which MAY include
   row index columns designated by the table group's `INDEX_COLUMNS` attribute
   ({ref}`hep001-indexes`);
+* list column groups and everything they contain
+  ({ref}`hep001-list-columns`);
 * the reserved `CATEGORIES` subgroup and everything it contains
   ({ref}`hep001-categoricals`);
 * the reserved `SEARCH_INDEXES` subgroup and everything it contains
@@ -623,7 +646,9 @@ chooses.
 
 ### Required properties
 
-Each column of a HEP001 table MUST be stored as an HDF5 dataset that:
+Each column of a HEP001 table — except list columns, which are stored as
+groups per {ref}`hep001-list-columns` — MUST be stored as an HDF5 dataset
+that:
 
 * is a direct child of the table group,
 * has rank 1 shape,
@@ -643,15 +668,17 @@ Anndata-aligned attribute names (`_index`) and may be claimed by future HEPs.
 
 The only HDF5 datasets that are direct children of a table group are its column
 datasets: categories datasets live one level down inside the `CATEGORIES`
-subgroup ({numref}`§%s <hep001-categoricals>`), and search-index datasets inside
-the `SEARCH_INDEXES` subgroup ({numref}`§%s <hep001-search-indexes>`). A
-consumer therefore enumerates a table's columns as exactly the rank-1 datasets
-that are direct children of the table group; the `CATEGORIES` and
-`SEARCH_INDEXES` children are groups, not datasets, and are skipped
-automatically.
+subgroup ({numref}`§%s <hep001-categoricals>`), search-index datasets inside
+the `SEARCH_INDEXES` subgroup ({numref}`§%s <hep001-search-indexes>`), and a
+list column's member datasets inside its list column group
+({numref}`§%s <hep001-list-columns>`). A consumer therefore enumerates a
+table's columns as: the rank-1 datasets that are direct children of the
+table group, plus the direct-child groups whose `CLASS` attribute equals
+`LIST_COLUMN`. The `CATEGORIES` and `SEARCH_INDEXES` children carry no
+`CLASS` attribute and are skipped automatically.
 
 When `column-order` ({numref}`§%s <hep001-table-group>`) is present it lists
-exactly these column datasets and fixes their order; when absent, the set of
+exactly these columns and fixes their order; when absent, the set of
 columns is still fully determined by this rule, and only their order is
 implementation-defined.
 
@@ -669,7 +696,11 @@ Two caveats apply:
 2. Variable-length datatypes (e.g. variable-length UTF-8 strings, ragged numeric
    arrays) are permitted but generally discouraged, as their storage
    characteristics are poorly suited to columnar access patterns. Producers
-   SHOULD prefer fixed-length equivalents where possible.
+   SHOULD prefer fixed-length equivalents where possible. For ragged
+   per-row sequences in particular, producers SHOULD use a list column
+   ({ref}`hep001-list-columns`) instead of a variable-length-typed column
+   dataset; within list columns, variable-length datatypes are prohibited
+   outright ({numref}`§%s <list-no-vlen>`).
 
 ### Chunking and filters
 
@@ -794,9 +825,12 @@ alone constitutes the override; no additional attribute is required.
 
 ```{note}
 This is a conscious divergence from Anndata's nullable-integer and
-nullable-boolean encodings, which add a companion boolean mask. A future
-HEP MAY introduce explicit masks; until then, HEP001 relies on fill
-values alone.
+nullable-boolean encodings, which add a companion boolean mask. For
+column datasets, HEP001 relies on fill values alone. List columns are
+the one exception: a list column's optional `MASK` member dataset marks
+null lists ({numref}`§%s <list-column-members>`), because a `uint64`
+offsets encoding has no spare value domain for a fill sentinel that
+would distinguish a null list from an empty one.
 ```
 
 ### Column attributes
@@ -894,6 +928,233 @@ graph LR
   class col dataCol
   class cg catGroup
   class cat catData
+```
+
+(hep001-list-columns)=
+## List columns
+
+A *list column* stores a variable-length list of values in each row —
+`list<float32>`, `list<utf8>`, `list<list<int16>>`, and so on. Unlike every
+other column in this specification, a list column is not a single rank-1
+dataset: it is an HDF5 group that is a direct child of the table group.
+The group's link name is the column name, and the member datasets inside
+the group together encode the rows' lists.
+
+The encoding is the offsets layout of the Apache Arrow columnar format.
+All elements of all rows are stored back-to-back in a flattened `VALUES`
+member, in row order, and a monotonic `OFFSETS` dataset records each row's
+slice: row `i`'s list occupies elements `[OFFSETS[i], OFFSETS[i+1])` of the
+`VALUES` member. Access is positional and `O(1)` per row, and a `VALUES`
+dataset is an ordinary HDF5 dataset with its own datatype, chunk shape, and
+filter pipeline. The same per-column storage independence that motivates HEP001
+extends to list elements. Because the `VALUES` member MAY itself be another
+list encoding, lists nest to arbitrary depth: JSON-style arrays of arrays
+of any depth fit naturally, provided the innermost elements share one
+datatype.
+
+(list-column-identification)=
+### Identification
+
+Every list column group MUST carry the following two attributes:
+
+`CLASS`
+: Scalar, null-terminated fixed-length ASCII string attribute with value
+  `LIST_COLUMN`. A consumer MUST identify a list column as a direct child
+  group of a table group whose `CLASS` attribute equals `LIST_COLUMN`.
+  Groups deeper inside a list column MAY also carry `CLASS="LIST_COLUMN"`
+  (nested lists, {numref}`§%s <list-column-members>`); they are part of
+  their outermost list column's encoding and are not themselves columns
+  of the table.
+
+`KIND`
+: Scalar, null-terminated fixed-length ASCII string attribute naming the
+  storage method used inside the group. The only value defined by this
+  revision is `OFFSETS`, specified in this section. Future revisions MAY
+  register additional values. A consumer that encounters a `KIND` it does
+  not implement MUST NOT silently drop the column; it SHOULD surface the
+  column as present but unreadable.
+
+A producer MUST NOT write `CLASS="LIST_COLUMN"` on any group that does not
+satisfy the rest of this section.
+
+(list-column-members)=
+### Members of a list column group
+
+A `KIND="OFFSETS"` list column group contains the following members, and
+no other objects. The member dataset names are reserved names
+({ref}`hep001-reserved-names-list`).
+
+`OFFSETS`
+: REQUIRED. A rank-1 dataset of datatype `uint64`. `OFFSETS[0]` MUST be
+  `0`, and values MUST be monotonically non-decreasing over positions
+  `[0, L]`, where `L` is the number of entries at this level
+  ({numref}`§%s <list-level-length>`). Entry `i` occupies elements
+  `[OFFSETS[i], OFFSETS[i+1])` of the `VALUES` member; an empty list has
+  `OFFSETS[i+1] = OFFSETS[i]`. The first-dimension extent MUST be
+  `≥ L + 1`; positions beyond `L` are reserved storage
+  ({numref}`§%s <write-workflow>`).
+
+`VALUES`
+: REQUIRED. The flattened elements of all entries, in entry order.
+  Exactly one of:
+
+  * a rank-1 HDF5 dataset — the *leaf* case. The element datatype MAY be
+    any datatype permitted for a column dataset except variable-length
+    datatypes ({numref}`§%s <list-no-vlen>`);
+  * a group with `CLASS="LIST_COLUMN"` and `KIND="OFFSETS"` — the
+    elements are themselves lists (nested lists);
+  * a group with `CLASS="STRING_VALUES"` — the elements are
+    variable-length UTF-8 strings ({numref}`§%s <string-values>`).
+
+`MASK`
+: OPTIONAL. A rank-1 dataset of the boolean datatype of
+  {numref}`§%s <hep001-boolean-attributes>`, with first-dimension extent
+  `≥ L`. `MASK[i] = FALSE` declares entry `i` *null* (missing);
+  `MASK[i] = TRUE` declares it present. When `MASK` is absent, every
+  entry at this level is present. For a null entry the producer MUST
+  write `OFFSETS[i+1] = OFFSETS[i]`, so that null and empty entries both
+  occupy zero elements of `VALUES` and only `MASK` distinguishes them.
+
+Each member dataset MAY independently select its chunk shape, dataset
+creation properties, and filter pipeline, per the same rule that governs
+column datasets. Producers SHOULD NOT rely on fill values of `OFFSETS`
+or `MASK` datasets; missingness at each level is expressed only as
+specified here.
+
+(list-level-length)=
+### Levels, entries, and nesting
+
+The entries of the *top level* of a list column are the table's rows:
+`L = NROWS`, and the same `[0, NROWS)` / reserved-tail semantics that
+govern column datasets ({numref}`§%s <hep001-nrows>`) govern the top-level
+`OFFSETS` and `MASK`.
+
+When a `VALUES` member is itself a list encoding (a nested `LIST_COLUMN`
+or a `STRING_VALUES` group), the entries of that nested level are the
+*elements* of its parent level: its entry count is
+`L_nested = OFFSETS_parent[L_parent]`. Its own `OFFSETS` extent MUST be
+`≥ L_nested + 1` and its `MASK` extent, when present, `≥ L_nested`. This
+rule applies recursively to any depth. A nested `MASK` distinguishes a
+null inner list from an empty inner list at that level.
+
+Missing values at the three structural positions are therefore expressed
+as: a *null list* by the `MASK` of the level above the list; a *null
+string element* by the `MASK` of the `STRING_VALUES` group; and a
+*missing leaf element* by the fill value of the leaf `VALUES` dataset,
+using the canonical missing-value test of {numref}`§%s <fill-vals>`
+unchanged. The leaf `VALUES` dataset MAY carry `valid_min` / `valid_max`
+per {numref}`§%s <fill-vals>`.
+
+(string-values)=
+### String elements — the `STRING_VALUES` group
+
+Variable-length string elements are stored without HDF5 variable-length
+datatypes, as a second offsets level over a byte buffer. A group with
+`CLASS="STRING_VALUES"` (scalar, null-terminated fixed-length ASCII
+string attribute) contains exactly:
+
+`OFFSETS`
+: REQUIRED. As in {numref}`§%s <list-column-members>`: rank-1 `uint64`,
+  `OFFSETS[0] = 0`, monotonic, extent `≥ L + 1` for `L` entries. Entry
+  `j` is the byte range `[OFFSETS[j], OFFSETS[j+1])` of `CHARS`.
+
+`CHARS`
+: REQUIRED. A rank-1 dataset of datatype `uint8` holding the UTF-8
+  encoding of all entries, back to back — with no byte-order mark and no
+  Unicode normalization (no NFC, NFD, NFKC, or NFKD conversion), matching
+  the string rules used elsewhere in this specification. Because the
+  element type is `uint8`, the buffer passes through the filter pipeline
+  and compresses like any other dataset.
+
+`MASK`
+: OPTIONAL. As in {numref}`§%s <list-column-members>`; distinguishes a
+  null string entry from an empty one.
+
+Producers whose string elements have a known maximum byte length SHOULD
+consider the simpler leaf alternative: a `VALUES` dataset of a
+fixed-length UTF-8 string datatype sized to that bound
+(one UTF-8 code point can occupy up to four bytes). Fixed-length string
+elements pass through the filter pipeline directly and need no
+`STRING_VALUES` group; the empty-string missing-value convention of
+{numref}`§%s <fill-vals>` applies to them unchanged.
+
+(list-no-vlen)=
+### No variable-length datatypes
+
+A producer MUST NOT use any HDF5 variable-length datatype — variable-length
+strings or variable-length sequences of any base type — anywhere below a
+list column group. Every conformant list column subtree is therefore free
+of global-heap storage.
+
+This rule is stricter than the SHOULD-level discouragement that applies to
+column datasets, and it is deliberate: list columns exist to make
+variable-length data fast, and variable-length datatypes are not. Their
+element bytes live on the HDF5 global heap, outside the dataset's chunks,
+so the filter pipeline compresses only the heap references while the
+data itself is stored uncompressed with per-object heap overhead. Heap
+access defeats direct chunk I/O and cloud-optimized readers. Parallel
+HDF5 collective I/O cannot write variable-length data. Heap space
+freed by rewrites is not reclaimed short of `h5repack`. The `OFFSETS` +
+`CHARS` encoding of {numref}`§%s <string-values>` and fixed-length
+element datatypes together cover the same use cases without any of
+these costs.
+
+### List column attributes
+
+A list column group MAY carry the descriptive attributes `description`,
+`units`, and `units_vocabulary` with the same meanings they have on column
+datasets; `units` describes the leaf elements. A list column group MUST NOT
+carry `SEARCH_INDEX_LIST` — this revision defines no search indexes over
+list columns; a future revision MAY. A list column MUST NOT be referenced
+by the table group's `INDEX_COLUMNS` attribute — lists have no
+HEP001-defined order, so they cannot serve as row labels. A list column
+SHOULD appear in `column-order` by name, like any other column.
+
+### Reading a list column
+
+To read row `i` of a `KIND="OFFSETS"` list column, a consumer:
+
+1. reads `MASK[i]` if `MASK` is present `FALSE` yields a null list;
+1. reads `OFFSETS[i]` and `OFFSETS[i+1]`; equal values with a present (or
+absent) mask yield an empty list;
+1. reads elements `[OFFSETS[i], OFFSETS[i+1])` of `VALUES`, recursing per level
+when `VALUES` is a group.
+
+Since step 1 matters only when the slice is empty, consumers MAY defer it and
+typical rows cost one `OFFSETS` read plus one `VALUES` read — the same two
+dependent reads that any variable-length encoding requires, with the first
+falling on a small, cache-friendly dataset.
+
+```{mermaid}
+graph TD
+  TG[["table group"]]
+  LC[["readings (list column group)<br/>CLASS='LIST_COLUMN'<br/>KIND='OFFSETS'"]]
+  OF>"OFFSETS (uint64, N+1)"]
+  MK>"MASK (bool enum, N, optional)"]
+  VL>"VALUES (float32, M)"]
+  LC2[["tags (list column group)<br/>CLASS='LIST_COLUMN'<br/>KIND='OFFSETS'"]]
+  OF2>"OFFSETS (uint64, N+1)"]
+  SV[["VALUES (group)<br/>CLASS='STRING_VALUES'"]]
+  OF3>"OFFSETS (uint64, M2+1)"]
+  CH>"CHARS (uint8, B)"]
+
+  TG --> LC
+  TG --> LC2
+  LC --> OF
+  LC --> MK
+  LC --> VL
+  LC2 --> OF2
+  LC2 --> SV
+  SV --> OF3
+  SV --> CH
+
+  classDef tableGroup fill:#FFF4D4,stroke:#D4B86A,stroke-width:2px,color:#000
+  classDef listGroup  fill:#DDEBDD,stroke:#7CB78A,stroke-width:2px,color:#000
+  classDef dataCol    fill:#D4EBF8,stroke:#7FA9D0,stroke-width:1px,color:#000
+
+  class TG tableGroup
+  class LC,LC2,SV listGroup
+  class OF,MK,VL,OF2,OF3,CH dataCol
 ```
 
 (hep001-indexes)=
@@ -1373,6 +1634,13 @@ describing a chunk that lies entirely in `[NROWS, extent)` — MAY be
 present as residue from preallocation or from a previous, larger table
 state, and MUST be ignored.
 
+For list columns the cutoff applies through the top-level `OFFSETS`:
+rows `[0, NROWS)` define the valid slices, positions of `OFFSETS`
+beyond `NROWS` (and of `MASK` beyond `NROWS`) are reserved storage, and
+elements of any `VALUES` member beyond `OFFSETS[NROWS]` (applied
+recursively through nested levels) have no semantic meaning and MUST be
+ignored.
+
 ### Appending rows
 
 A producer that appends `K` new rows to a table MUST perform the
@@ -1383,9 +1651,18 @@ point that publishes the new rows to readers:
 2. **Extend every column dataset** so that its first-dimension extent is
    `≥ N_old + K`. A column that already has spare capacity from a prior
    preallocation needs no extension; the requirement is the
-   post-condition `extent ≥ N_old + K` on every column.
+   post-condition `extent ≥ N_old + K` on every column. For every list
+   column, extend the member datasets to their own post-conditions:
+   top-level `OFFSETS` extent `≥ N_old + K + 1`, `MASK` (when present)
+   extent `≥ N_old + K`, and each `VALUES` member (recursively) large
+   enough for the elements being appended.
 3. **Write the new row values** into rows `[N_old, N_old + K)` of each
-   column. Writes MAY proceed in any order across columns.
+   column. Writes MAY proceed in any order across columns. Within a
+   list column, write leaf-first: element values at the deepest level
+   first, then each enclosing level's `OFFSETS` (and `MASK`), ending
+   with the top-level `OFFSETS` entries `[N_old + 1, N_old + K]` —
+   so that at every moment the already-committed rows `[0, N_old)`
+   remain fully described.
 4. **Update every search index** on every affected column so that, after
    step 5 commits, the index correctly describes rows `[0, N_old + K)`.
    For index families that support efficient incremental updates
@@ -1450,8 +1727,16 @@ A producer MAY shrink the logical table by writing a smaller `NROWS`
 value. The truncation is logical: the column datasets MAY retain their
 old extents, with rows `[new_NROWS, old_NROWS)` becoming reserved
 storage. A producer that wants to reclaim physical space MUST rewrite
-each column dataset to its new extent — typically via the `h5repack`
-utility or an equivalent rewriting tool.
+each column dataset to its new extent.
+
+The same logical truncation applies to list columns with no additional
+writes: the smaller `NROWS` shrinks the valid top-level `OFFSETS` range
+to `[0, new_NROWS]`, and `OFFSETS[new_NROWS]` becomes the bound on
+valid elements at every nested level
+({numref}`§%s <list-level-length>`). Positions and elements beyond
+those bounds become reserved storage. Reclaiming their physical space
+likewise requires rewriting the affected member datasets to their new
+logical sizes.
 
 The same index-consistency rule that governs appends applies on
 truncation: the producer MUST update every affected search index to
@@ -1494,13 +1779,14 @@ A conformant table group satisfies all of the following at all times:
    present, MUST contain only categories datasets, and every categories
    dataset MUST be referenced by at least one categorical column's
    `CATEGORIES` attribute.
-6. `column-order`, when present, MUST list every column dataset of the
-   table exactly once and MUST NOT list any dataset that is not a column
-   dataset (in particular, not a categories dataset or a search-index
-   dataset).
+6. `column-order`, when present, MUST list every column of the
+   table (column datasets and list columns) exactly once and MUST NOT
+   list any object that is not a column (in particular, not a categories
+   dataset, a search-index dataset, or a member of a list column group).
 7. Every reference in the table group's `INDEX_COLUMNS` attribute
    (when present) MUST resolve to a column dataset that is a direct
-   child of the table group and MUST NOT be a null reference; when
+   child of the table group, MUST NOT be a null reference, and MUST NOT
+   resolve to a list column group; when
    `_index` is also present, it MUST equal the dataset name of the
    column referenced by `INDEX_COLUMNS[0]`.
 8. Every categorical column's fill value (see {numref}`§%s <fill-vals>`)
@@ -1513,6 +1799,17 @@ A conformant table group satisfies all of the following at all times:
    describe positions `≥ NROWS` — for example, residue from
    preallocation or from a prior truncation — MAY be present and
    MUST be ignored by consumers.
+10. Every list column group MUST satisfy the structural rules of
+    {ref}`hep001-list-columns` at every level: `CLASS` and `KIND`
+    attributes present; `OFFSETS[0] = 0` and monotonically
+    non-decreasing over `[0, L]` with extent `≥ L + 1` for that level's
+    entry count `L`; `MASK`, when present, of extent `≥ L`, with
+    `OFFSETS[i+1] = OFFSETS[i]` for every entry whose `MASK[i]` is
+    `FALSE`; and a `VALUES` member that is a rank-1 dataset, a
+    conformant nested list column group, or a conformant
+    `STRING_VALUES` group.
+11. No variable-length datatype occurs anywhere below a list column
+    group ({numref}`§%s <list-no-vlen>`).
 
 A producer that mutates a table (appends rows, truncates, rewrites a
 column, etc.) MUST follow {numref}`§%s <write-workflow>` — either
@@ -1593,10 +1890,38 @@ The complete set of HEP001 reserved names is listed below.
 : The reserved subgroup of a table group that holds every search-index dataset
   for the table. See {ref}`hep001-search-indexes`.
 
+#### List column member names
+
+The following dataset names are reserved inside list column groups and
+`STRING_VALUES` groups ({ref}`hep001-list-columns`). A list column group
+itself is named by the producer (its name is the column name); only its
+members carry reserved names.
+
+`OFFSETS`
+: The offsets dataset of a list column or `STRING_VALUES` group.
+
+`VALUES`
+: The flattened-elements member of a list column group: a rank-1 leaf
+  dataset, a nested list column group, or a `STRING_VALUES` group. Shares
+  its token with the `VALUES` attribute of `BITMAP` search indexes below;
+  the two are unambiguous because one is an HDF5 link name and the other
+  an attribute name.
+
+`MASK`
+: The optional null-entry mask dataset of a list column or
+  `STRING_VALUES` group.
+
+`CHARS`
+: The UTF-8 byte-buffer dataset of a `STRING_VALUES` group.
+
 #### Table group attribute names
 
 `CLASS`
-: Identifies the group as a HEP001 table group. See {ref}`hep001-class`.
+: Identifies the role of a HEP001 group. On a table group its value is
+  `COLUMN_TABLE` ({ref}`hep001-class`); on a list column group,
+  `LIST_COLUMN`; on the string-elements group of a list column,
+  `STRING_VALUES` ({ref}`hep001-list-columns`). The value strings are
+  reserved tokens.
 
 `VERSION`
 : HEP001 revision the table conforms to.
@@ -1632,13 +1957,20 @@ The complete set of HEP001 reserved names is listed below.
 #### Search-index and categories dataset attribute names
 
 `KIND`
-: ASCII enum that identifies the family of a search-index dataset.
+: ASCII string that identifies the family of a search-index dataset, or
+  the storage method of a list column group
+  ({numref}`§%s <list-column-identification>`). The two value sets are
+  disjoint and are interpreted according to the object that carries the
+  attribute.
 
 `VALUES`
 : Object reference, on a `BITMAP` search-index dataset, to its accompanying
-  values dataset.
+  values dataset. Shares its token with the `VALUES` member name of list
+  column groups above.
 
 #### `KIND` attribute values
+
+On search-index datasets:
 
 * `CHUNK_MINMAX`
 * `SORTED_ROWS`
@@ -1647,6 +1979,14 @@ The complete set of HEP001 reserved names is listed below.
 
 See {ref}`hep001-search-indexes` for their meaning. Consumers MUST treat unknown
 values as "ignore this search index".
+
+On list column groups:
+
+* `OFFSETS`
+
+See {ref}`hep001-list-columns` for its meaning. A consumer that does not
+implement a list column's `KIND` MUST NOT silently drop the column
+({numref}`§%s <list-column-identification>`).
 
 (hep001-shared-names)=
 ### Names shared with Anndata
@@ -1707,6 +2047,45 @@ and no search indexes.
 /my_table/CATEGORIES/label__CATEGORIES   (Dataset, vlen UTF-8, shape (3,))
   ordered           = false
 ```
+
+### A table with list columns
+
+Extending {numref}`§%s <min-example-table>` with two list columns:
+`readings` (`list<float32>`, with null lists possible) and `tags`
+(`list<utf8>`, unbounded string elements, no null lists):
+
+```
+/my_table
+  column-order      = ["row_id", "ts", "energy", "label",
+                       "readings", "tags"]
+  …
+
+/my_table/readings                 (Group)
+  CLASS             = "LIST_COLUMN"    (ASCII, fixed length)
+  KIND              = "OFFSETS"        (ASCII, fixed length)
+  description       = "Per-event auxiliary sensor readings."
+
+/my_table/readings/OFFSETS         (Dataset, uint64, shape (N+1,))
+/my_table/readings/MASK            (Dataset, bool enum, shape (N,))
+/my_table/readings/VALUES          (Dataset, float32, shape (M,))
+  units             = "V"
+
+/my_table/tags                     (Group)
+  CLASS             = "LIST_COLUMN"
+  KIND              = "OFFSETS"
+
+/my_table/tags/OFFSETS             (Dataset, uint64, shape (N+1,))
+/my_table/tags/VALUES              (Group)
+  CLASS             = "STRING_VALUES"
+
+/my_table/tags/VALUES/OFFSETS      (Dataset, uint64, shape (M2+1,))
+/my_table/tags/VALUES/CHARS        (Dataset, uint8, shape (B,))
+```
+
+Row `i` of `readings` is `VALUES[OFFSETS[i] : OFFSETS[i+1]]`, unless
+`MASK[i]` is `FALSE`, in which case the list is null. Row `i` of `tags`
+resolves through two offsets levels: entry `j` of the row's slice is the
+UTF-8 decoding of `CHARS[VALUES/OFFSETS[j] : VALUES/OFFSETS[j+1]]`.
 
 ### Adding a chunk min/max search index
 
