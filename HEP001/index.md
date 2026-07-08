@@ -21,12 +21,10 @@ numbering:
 ---
 
 (hep001-title)=
-# HEP001: Column-Oriented Tabular Data in HDF5
+# H5Col: Column-Oriented Tabular Data in HDF5
 
 ```{attention}
-This document is a **work-in-progress draft**. The data model and attribute names below are intended
-to be stable, but normative language (MUST / SHOULD / MAY) will be tightened
-during review. Comments and pull requests are welcome on the
+This proposal is a **draft**. Comments and pull requests are welcome on the
 [HEP repository](https://github.com/HDFAlliance/heps).
 ```
 
@@ -37,26 +35,6 @@ Office of Science, Office of Fusion Energy Sciences, under Award Number DE-SC002
 No contractual or commercial obligations constrain the content of this document.
 This work is contributed to the HDF community under the
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license.
-```
-
-```{tip} Help choose the name for this convention
-The proposed convention/format does not yet have an official name. Possible candidates:
-
-- **Pillar**
-
-  Cleanest columnar metaphor. One syllable, no ambiguity, works as a filename stem (`*.pillar`), API (`pillar.open(...)`), or prose ("a Pillar table").
-
-- **Strata**
-
-  Layered, geological. Plays nicely with HDF5's hierarchy and with the idea that each column is its own layer.
-
-- **H5Col**
-
-  Bare-bones and unambiguous. Reads cleanly as a suffix (`.h5col`), package (`h5col`), class (`H5Col.Table`), and spec shorthand.
-
-- **H5DataFrame**
-
-  Explicit, Anndata-aligned. Good if interoperability is the sell; trades brevity for clarity.
 ```
 
 ## Introduction
