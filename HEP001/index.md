@@ -368,17 +368,20 @@ Producers MUST NOT write the deprecated object-reference datatype
 reference attribute whose datatype is not `H5T_STD_REF`.
 
 (hep001-boolean-attributes)=
-## Boolean attributes
+## The boolean datatype
 
 HDF5 has no native boolean datatype, and the wider HDF5 ecosystem has not
-converged on one encoding. HEP001 fixes a single, self-describing form so that
-boolean attributes are unambiguous on disk.
+converged on one encoding. HEP001 fixes a single, self-describing form so
+that boolean values are unambiguous on disk wherever they occur: in the
+attributes this specification calls *boolean*, in the `MASK` member
+datasets of list columns ({numref}`§%s <list-column-members>`), and in
+boolean columns ({numref}`§%s <hep001-booleans>`).
 
-Every attribute that this specification calls *boolean* MUST be stored as an
-HDF5 enumerated datatype with:
+The HEP001 boolean datatype is an HDF5 enumerated datatype with:
 
 * base type `H5T_STD_I8LE` (signed 8-bit integer, little-endian), and
 * exactly two members, `FALSE` mapped to `0` and `TRUE` mapped to `1`.
+  Member names are case-sensitive.
 
 In HDF5 DDL (as emitted by `h5dump`), the datatype is described as:
 
@@ -390,9 +393,17 @@ H5T_ENUM {
 }
 ```
 
-Producers MUST NOT store a HEP001 boolean as a plain integer, an `H5T_BITFIELD`,
-or a string. A consumer determines truth from the enumerated integer value (`0`
-= false, `1` = true).
+Producers MUST write every HEP001 boolean attribute and boolean-valued
+dataset with exactly this datatype, and MUST NOT store a HEP001 boolean as
+a plain integer, an `H5T_BITFIELD`, or a string. A consumer determines
+truth from the enumerated integer value (`0` = false, `1` = true).
+
+Consumers MUST additionally accept, as boolean, any enumeration datatype
+whose base type is a one-byte integer of either signedness and whose
+members are exactly `FALSE` = 0 and `TRUE` = 1. This tolerance
+accommodates writers that use native rather than standard base types
+(e.g., h5py); byte order is immaterial for a one-byte type. An
+enumeration datatype with any other member set is not a boolean.
 
 (hep001-table-group)=
 ## The table group
@@ -707,7 +718,9 @@ A column dataset's HDF5 fill value identifies rows whose value is missing.
 Producers MUST set the dataset's fill value explicitly via the dataset creation
 property list (`H5Pset_fill_value`), placing the dataset into the
 `H5D_FILL_VALUE_USER_DEFINED` state, and MUST choose a fill value that lies
-outside the column's logical value range. A producer MAY declare that range
+outside the column's logical value range. Boolean columns are the one
+exception: they have no out-of-domain value and MUST NOT declare a fill
+value ({numref}`§%s <hep001-booleans>`). A producer MAY declare that range
 explicitly with the two attributes `valid_min` and `valid_max` on the column
 dataset (each a scalar of the column's element datatype). If present, the chosen
 fill value MUST lie strictly outside `[valid_min, valid_max]`.
@@ -795,9 +808,11 @@ backing the `MISSING` member then serves as the column's fill value.
 For datatypes not in the table:
 
 * `float16` is too narrow for a generic sentinel.
-* Boolean (1-bit) cannot represent a missing sentinel alongside its
-  two valid values. Producers MUST widen such columns to `uint8` and
-  use a value greater than `1` (typically `2`).
+* Boolean columns cannot represent a missing sentinel alongside their
+  two valid values and declare no fill value at all. For nullable
+  boolean data, use one of the two forms defined in
+  {numref}`§%s <hep001-booleans>` (a three-member enumeration with
+  `MISSING`, RECOMMENDED, or a `uint8` column with fill `255`).
 
 Producers whose column domain includes any of the recommended sentinels
 above MUST choose a different fill value via `H5Pset_fill_value`. For
@@ -913,6 +928,65 @@ graph LR
   class cg catGroup
   class cat catData
 ```
+
+(hep001-booleans)=
+### Boolean columns
+
+A *boolean column* is a column dataset whose datatype is the HEP001
+boolean datatype {numref}`§%s <hep001-boolean-attributes>`. The
+producer-strict, consumer-lenient rules defined there apply: producers
+MUST write exactly that datatype; consumers MUST accept the tolerated
+one-byte variants. An enumeration datatype with any other member set is
+not a boolean column and is governed by the ordinary rules for
+enumeration columns.
+
+#### Values
+
+Every element of a boolean column at a row position in `[0, NROWS)` MUST
+be `0` or `1`. A boolean column holding any other value at those
+positions is non-conformant, and consumers MUST NOT interpret such a
+value as either `FALSE` or `TRUE`: silent coercion would let two
+conformant consumers return different results for the same query and
+would make the canonical byte representation of
+{numref}`§%s <bloom>` ambiguous. Rows in `[NROWS, extent)` are reserved
+storage and exempt ({numref}`§%s <hep001-nrows>`).
+
+#### Missing values
+
+A boolean column cannot represent missing values: both values of its
+domain are meaningful, so no in-domain sentinel exists. A boolean column
+MUST NOT declare a user-defined fill value, and the requirements of
+{numref}`§%s <fill-vals>` do not apply to it — boolean columns are the
+one column datatype exempt from that section's mandatory fill value.
+
+A producer that needs a *nullable* boolean MUST use one of the following
+two forms instead. Neither is a boolean column.
+
+1. RECOMMENDED: an enumeration column with exactly three members —
+   `FALSE` = 0, `TRUE` = 1, `MISSING` = 2 — declaring the integer code
+   of `MISSING` as the fill value, per the enumeration convention of
+   {numref}`§%s <fill-vals>`. This form is self-describing: the member
+   names preserve the column's boolean semantics for any consumer.
+2. An integer column of datatype `uint8` with values `0` and `1` and a
+   declared fill value outside `{0, 1}` (`255` RECOMMENDED, matching the
+   recommended `uint8` fill of {numref}`Table %s <fill-table>`), for
+   pipelines that prefer plain integers at the cost of self-description.
+
+#### Interaction with search indexes
+
+For the purposes of {numref}`§%s <hep001-search-indexes>`:
+
+* **Ordering** (`SORTED_ROWS`, `CHUNK_MINMAX`): boolean values order by
+  their integer codes; `FALSE` sorts before `TRUE`.
+* **`CHUNK_MINMAX`**: the `min` and `max` fields use the column's
+  datatype. Min/max pruning over a two-value domain is rarely useful;
+  producers SHOULD prefer `BITMAP` for boolean columns.
+* **`CHUNK_BLOOM`**: the canonical byte representation of a boolean
+  value is a single byte, `0x00` for `FALSE` and `0x01` for `TRUE`
+  ({numref}`§%s <bloom>`). Boolean columns are the one enumeration
+  datatype permitted to carry a `CHUNK_BLOOM` index.
+* **`BITMAP`**: permitted; the accompanying values dataset holds at most
+  two entries.
 
 (hep001-list-columns)=
 ## List columns
@@ -1394,7 +1468,8 @@ whose HDF5 datatype has a HEP001-defined order, as enumerated below:
   missing row is a `NaN` row and is placed in the `NaN` tail;
   `fill_tail_length` is then `0`, and `nan_tail_length` equals the
   column's total missing-row count.
-* **Boolean values:** `false` (`0x00`) sorts before `true` (`0x01`).
+* **Boolean values** (boolean columns, {numref}`§%s <hep001-booleans>`):
+  ordered by integer code; `FALSE` (`0`) sorts before `TRUE` (`1`).
 * **Fixed- and variable-length strings:** lexicographic comparison over the
   UTF-8 byte sequence — i.e., **byte-wise**, with no byte-order mark and no
   Unicode normalization (no NFC, NFD, NFKC, or NFKD conversion is applied). For
@@ -1550,7 +1625,8 @@ query value identically before testing the filter.
   case, `NaN` elements are missing values, and missing values are by
   convention excluded from Bloom-filter membership testing anyway.
   Producers MUST normalize negative zero to positive zero before hashing.
-* **Boolean values:** a single byte, `0x00` for false or `0x01` for true.
+* **Boolean values** (boolean columns, {numref}`§%s <hep001-booleans>`):
+  a single byte, `0x00` for `FALSE` or `0x01` for `TRUE`.
 * **Fixed- and variable-length strings:** the string's **UTF-8** byte sequence,
   with **no byte-order mark** and **no Unicode normalization** (no NFC, NFD,
   NFKC, or NFKD conversion is applied). For HDF5 fixed-length strings, the
@@ -1565,10 +1641,11 @@ query value identically before testing the filter.
 * **HDF5 object and region references:** out of scope for this revision.
   Producers MUST NOT build a `CHUNK_BLOOM` index over a reference-typed
   column.
-* **Compound, enum, array, and variable-length-array datatypes:** out
-  of scope for this revision. Producers MUST NOT build a `CHUNK_BLOOM`
-  index over composite-typed columns. A future HEP MAY register
-  canonical encodings for these cases.
+* **Compound, array, and variable-length-array datatypes, and enumerations other
+  than the boolean datatype ({numref}`§%s <hep001-boolean-attributes>`):** out
+  of scope for this revision. Producers MUST NOT build a `CHUNK_BLOOM` index
+  over such columns. A future HEP MAY register canonical encodings for these
+  cases.
 
 **Additional attributes:**
 
@@ -1967,6 +2044,9 @@ A conformant table group satisfies all of the following at all times:
     every search-index dataset MUST carry scalar `uint64`
     `SOURCE_GENERATION` and `SOURCE_NROWS` attributes
     ({numref}`§%s <validity-tokens>`).
+13. Every boolean column ({numref}`§%s <hep001-booleans>`) carries the
+    HEP001 boolean datatype, holds only the values `0` and `1` at row
+    positions in `[0, NROWS)`, and declares no user-defined fill value.
 
 A producer that mutates a table (appends rows, truncates, rewrites a
 column, etc.) MUST follow {numref}`§%s <write-workflow>` — for each
