@@ -471,6 +471,12 @@ and is the natural form of a brand-new table).
 
 The table group MAY carry the following attributes.
 
+`GENERATION`
+: Scalar `uint64`. Identifies the current state of the table's column
+  data for the index validity check. REQUIRED whenever the table group
+  contains any search-index dataset; MAY be omitted otherwise. See
+  {numref}`§%s <validity-tokens>`.
+
 `TITLE`
 : Scalar fixed-length UTF-8 string. Human-readable title of the table,
   mirroring HDF5 Table and PyTables. Purely descriptive.
@@ -1263,6 +1269,11 @@ attribute `KIND` whose value is one of the strings defined below:
 Future HEPs MAY register additional `KIND` values. Consumers MUST treat
 unknown `KIND` values as "ignore this search index".
 
+Every search-index dataset MUST also carry the two validity-token attributes
+`SOURCE_GENERATION` and `SOURCE_NROWS` ({numref}`§%s <validity-tokens>`). A
+consumer MUST evaluate the validity check defined there before using any search
+index.
+
 A search-index dataset MAY also carry a `description` attribute (scalar
 fixed-length UTF-8 string), per the descriptive-annotation convention
 used elsewhere in this spec (see {ref}`hep001-reserved-names`, rule 4).
@@ -1619,13 +1630,144 @@ elements of any `VALUES` member beyond `OFFSETS[NROWS]` (applied
 recursively through nested levels) have no semantic meaning and MUST be
 ignored.
 
+(validity-tokens)=
+### Index validity tokens
+
+Search indexes are derivative data, and this section places the burden
+of keeping them consistent on producers. Validity tokens give consumers
+a cheap, constant-time way to detect when that burden was not met — a
+crashed producer, an interrupted rebuild, or a tool that modified column
+data without maintaining indexes — without validating an index against
+the column it describes.
+
+#### The `GENERATION` attribute
+
+A table group that contains one or more search-index datasets MUST carry
+a scalar attribute named `GENERATION` of datatype `uint64`. A table
+group with no search-index datasets MAY omit it.
+
+`GENERATION` identifies the current state of the table's column data. A
+producer MUST increment `GENERATION` by one as part of any operation
+that:
+
+1. modifies the value of any element of any column at a row position in
+   `[0, NROWS)` — including the member datasets of a list column — or
+2. commits a change to `NROWS` (append, {numref}`§%s <appending-rows>`;
+   truncation, {numref}`§%s <hep001-truncation>`).
+
+`GENERATION` is compared by equality only. Producers MUST NOT assign
+meaning to its magnitude beyond distinguishing successive states, and
+consumers MUST NOT order table states by comparing `GENERATION` values.
+The initial value is unspecified; `0` is RECOMMENDED.
+
+Schema operations — adding, removing, or renaming columns — do not
+require an increment. Index linkage is per column and by object
+reference ({numref}`§%s <hep001-object-references>`): removing a column
+removes the `SEARCH_INDEX_LIST` attribute through which its indexes were
+reachable, adding a column affects no existing index, and renaming
+changes nothing an object reference resolves through. A producer MAY
+increment `GENERATION` on schema operations anyway; a spurious increment
+is safe — it can only disable indexes, never validate stale ones.
+
+#### Per-index source tokens
+
+Every search-index dataset MUST carry two scalar attributes of datatype
+`uint64`:
+
+`SOURCE_GENERATION`
+: The value that `GENERATION` holds — or will hold, once the table state
+  this index describes is committed — for the state the index content
+  was built against.
+
+`SOURCE_NROWS`
+: The value that `NROWS` holds, or will hold, for that same state.
+
+Building a new search index over an unchanged table is not a mutation:
+the producer writes `SOURCE_GENERATION` and `SOURCE_NROWS` equal to the
+table's current `GENERATION` and `NROWS` (writing `GENERATION` first if
+the table did not previously carry it) and does not increment
+`GENERATION`.
+
+Because `GENERATION` is table-wide, a mutation of one column also
+invalidates the indexes of columns that were not modified. Those indexes
+remain factually correct; a producer restores them by rewriting their
+`SOURCE_GENERATION` with the new value — an attribute-only write, no
+rebuild required.
+
+#### Consumer validity check
+
+Before using a search-index dataset, a consumer MUST evaluate:
+
+```
+SOURCE_GENERATION == GENERATION  AND  SOURCE_NROWS == NROWS
+```
+
+If either comparison fails, or if any of the four attributes is absent
+or of the wrong datatype, the consumer MUST behave as if the
+search-index dataset were not present. A failed check is not an error
+and MUST NOT cause the table to be rejected; it only disables
+index-accelerated access. Consumers MUST NOT partially trust a stale
+index — for example, by consulting a `SORTED_ROWS` permutation over the
+first `SOURCE_NROWS` rows of a longer table — because the token mismatch
+may equally stem from in-place modifications within those rows.
+
+#### Write ordering
+
+One invariant makes every crash state detectable: **at every instant, a
+search-index dataset whose content does not correctly describe the
+committed table state MUST carry tokens that fail the validity check.**
+The invariant dictates opposite update orders for the two kinds of
+mutation:
+
+* **Mutations gated by the `NROWS` commit** (append, truncation): the
+  rebuilt index describes a *future* state, so the producer MUST write
+  the future-valued tokens **before** modifying the index content. The
+  new `SOURCE_GENERATION` does not yet exist on the table group, so the
+  index fails the check throughout its own rebuild; a crash mid-rebuild
+  leaves it detectably stale rather than plausibly valid.
+* **Immediately visible mutations** (in-place updates,
+  {numref}`§%s <in-place-updates>`): the producer MUST commit the
+  `GENERATION` increment (and flush) **before** writing any column data,
+  disabling every index up front, and MUST rewrite each index's tokens
+  only **after** that index's content is again correct. Writing
+  current-valued tokens before the content would let a mid-rebuild index
+  pass the check.
+
+According to the append protocol ({numref}`§%s <appending-rows>`), a
+crash before the `GENERATION` write leaves the old table state fully
+usable with its old, still-valid indexes — appended data is invisible. A
+crash between the `GENERATION` and `NROWS` writes leaves the table
+readable at the old `NROWS` with no valid indexes: rebuilt indexes fail
+the `SOURCE_NROWS` comparison, untouched ones the `SOURCE_GENERATION`
+comparison. `SOURCE_NROWS` exists precisely for that window — with
+`SOURCE_GENERATION` alone, a rebuilt index would appear valid in it. No
+write ordering between the `GENERATION` and `NROWS` attributes
+themselves is required: if `NROWS` happens to reach storage first and
+the producer crashes, updated indexes fail on `SOURCE_GENERATION`
+instead. Both orders are detectably stale.
+
+These guarantees are conditional on the integrity of the HDF5 file
+itself: HDF5 does not journal its own metadata, and the
+crash-consistency statements of this section describe the HEP001-level
+state of a file that survives the crash structurally intact.
+
+```{note}
+The validity check defends against accidental staleness, not against an
+adversarial writer, who can trivially forge matching tokens. Consumers
+processing untrusted files remain subject to the requirements of
+{numref}`§%s <hep001-security>`.
+```
+
+(appending-rows)=
 ### Appending rows
 
 A producer that appends `K` new rows to a table MUST perform the
-operation in the following order, treating step 5 as the single commit
+operation in the following order, treating step 6 as the single commit
 point that publishes the new rows to readers:
 
-1. **Read the current `NROWS`** (call it `N_old`).
+1. **Read the current `NROWS` and `GENERATION`** (call them `N_old` and
+   `g_old`). A table with no search-index datasets carries no
+   `GENERATION` and skips the token-related parts of steps 4–5.
 2. **Extend every column dataset** so that its first-dimension extent is
    `≥ N_old + K`. A column that already has spare capacity from a prior
    preallocation needs no extension; the requirement is the
@@ -1641,35 +1783,44 @@ point that publishes the new rows to readers:
    with the top-level `OFFSETS` entries `[N_old + 1, N_old + K]` —
    so that at every moment the already-committed rows `[0, N_old)`
    remain fully described.
-4. **Update every search index** on every affected column so that, after
-   step 5 commits, the index correctly describes rows `[0, N_old + K)`.
-   For index families that support efficient incremental updates
-   (`CHUNK_MINMAX`, `CHUNK_BLOOM`), a producer MAY simply append new
-   entries; for families that do not (`SORTED_ROWS`, `BITMAP`), the
-   producer typically rebuilds the index from scratch. A producer that
-   cannot perform a consistent index update MUST delete the affected
-   indexes — and remove the corresponding references from each column's
-   `SEARCH_INDEX_LIST` — before step 5.
-5. **Commit by writing `NROWS = N_old + K`** as the final step. The
+4. **Update the search indexes** the producer chooses to maintain. For
+   each such index: first write its `SOURCE_GENERATION = g_old + 1` and
+   `SOURCE_NROWS = N_old + K` — the tokens-before-content rule of
+   {numref}`§%s <validity-tokens>` — then rebuild or update its content
+   so that, after step 6 commits, it correctly describes rows
+   `[0, N_old + K)`. For index families that support efficient
+   incremental updates (`CHUNK_MINMAX`, `CHUNK_BLOOM`), a producer MAY
+   simply append new entries; for families that do not (`SORTED_ROWS`,
+   `BITMAP`), the producer typically rebuilds the index from scratch.
+   Indexes the producer does not maintain MAY be left untouched — the
+   validity check disables them — or deleted together with the
+   corresponding references in each column's `SEARCH_INDEX_LIST`.
+5. **Write `GENERATION = g_old + 1`** (when the table carries
+   `GENERATION`).
+6. **Commit by writing `NROWS = N_old + K`** as the final step. The
    attribute update SHOULD be followed by an `H5Fflush` (or equivalent)
    before the producer reports the append as complete.
 
-The ordering is load-bearing for crash recovery. Until step 5 commits,
+The ordering is critical for crash recovery. Until step 6 commits,
 every consumer that opens the file still sees `NROWS = N_old` and
 therefore the table exactly as it was before the append. A producer
 that crashes anywhere in steps 1–4 leaves a file whose observable
 state is identical to the pre-append state: the unused tail in
-`[N_old, extent)` is reserved storage, and any index residue beyond
-`N_old` is ignored. No cleanup is required for readers to use the
+`[N_old, extent)` is reserved storage, any index residue beyond
+`N_old` is ignored, and indexes rewritten in step 4 fail the validity
+check. A crash after step 5 but before step 6 additionally disables
+all of the table's search indexes until a producer refreshes or
+rebuilds them ({numref}`§%s <validity-tokens>`). The table data remains
+fully readable. No cleanup is required for readers to use the
 file correctly. A subsequent producer that wants to retry the append
 SHOULD either overwrite the unused tail or extend further.
 
 HDF5 itself does not guarantee atomic ordering between the data writes
-of step 3, the index writes of step 4, and the attribute update of
-step 5 unless the producer issues explicit `H5Fflush` calls between
+of step 3, the index writes of step 4, and the attribute updates of
+steps 5–6 unless the producer issues explicit `H5Fflush` calls between
 them. A producer that requires strong durability
 across a crash MUST issue an `H5Fflush` after step 4 and again after
-step 5, so that the on-disk state cannot show `NROWS = N_old + K`
+step 6, so that the on-disk state cannot show `NROWS = N_old + K`
 together with unwritten column data or stale indexes.
 
 ```{note}
@@ -1691,7 +1842,7 @@ amortize the cost of `H5Dset_extent` across many small appends — for
 example, extending by one chunk's worth of rows at a time and filling
 that chunk over several append batches. The extended tail is reserved
 storage; its contents have no semantic meaning under HEP001 until a
-subsequent commit (step 5 above) increases `NROWS` to cover them.
+subsequent commit (step 6 above) increases `NROWS` to cover them.
 
 A producer that preallocates SHOULD ensure that all columns in the
 same table group remain at equal first-dimension extents after each
@@ -1699,6 +1850,7 @@ operation (see {numref}`§%s <hep001-consistency>`). The simplest and
 recommended discipline is to preallocate every column by the same
 number of rows at the same time.
 
+(hep001-truncation)=
 ### Truncation
 
 A producer MAY shrink the logical table by writing a smaller `NROWS`
@@ -1716,19 +1868,38 @@ those bounds become reserved storage. Reclaiming their physical space
 likewise requires rewriting the affected member datasets to their new
 logical sizes.
 
-The same index-consistency rule that governs appends applies on
-truncation: the producer MUST update every affected search index to
-match the new `NROWS`, or delete it (and remove the corresponding
-`SEARCH_INDEX_LIST` entry on the column) before committing the new
-`NROWS` value.
+The same index rules that govern appends apply on truncation, with
+`new_NROWS` in place of `N_old + K`: the producer either maintains an
+index (tokens first, then content; steps 4–6 of
+{numref}`§%s <appending-rows>`), deletes it (removing the corresponding
+`SEARCH_INDEX_LIST` entry on the column), or leaves it untouched to be
+disabled by the validity check ({numref}`§%s <validity-tokens>`).
 
+(in-place-updates)=
 ### In-place updates
 
 A producer MAY rewrite individual cells of the table — change the
 value at one or more row positions `< NROWS` — without altering
-`NROWS`. Producers MUST update every affected search index to reflect
-the new values, or delete it before committing the change. In-place
-updates do not benefit from the single-attribute commit point that
+`NROWS`. Unlike appended rows, in-place writes are visible to consumers
+the moment they reach the file, so the mutation MUST follow the
+invalidate-first ordering of {numref}`§%s <validity-tokens>`:
+
+1. **Write `GENERATION = g_old + 1`** and flush (`H5Fflush`). From this point,
+   every search index in the table fails the validity check. (A table with no
+   search indexes carries no `GENERATION` and skips steps 1 and 3.)
+2. **Write the new cell values.**
+3. **Restore search indexes.** For each index over a modified column: rebuild or
+   update its content first, then write its `SOURCE_GENERATION = g_old + 1`
+   (`SOURCE_NROWS` is unchanged) content before tokens, because the new
+   generation is already committed. For each index over an unmodified column,
+   rewriting `SOURCE_GENERATION` alone suffices. Indexes the producer does not
+   restore MAY be left disabled or deleted. Flush.
+
+A crash before step 2 leaves the data unchanged and every index
+disabled but factually correct — a subsequent producer MAY restore them
+by rewriting tokens alone. A crash during step 2 leaves possibly
+partial data with every index disabled. In-place updates of the data
+itself do not benefit from the single-attribute commit point that
 `NROWS` provides; producers that require atomic semantics for
 in-place edits MUST arrange them externally (for example, by writing
 to a fresh column dataset and swapping it in under a future revision
@@ -1772,11 +1943,14 @@ A conformant table group satisfies all of the following at all times:
    dataset's index range, so that the canonical missing-value test
    ({numref}`§%s <fill-vals>`) unambiguously denotes "missing category"
    rather than "valid value at category index *fill*."
-9. Every search-index dataset's content MUST correctly describe its
+9. Every search-index dataset whose validity check
+   ({numref}`§%s <validity-tokens>`) passes MUST correctly describe its
    source column for row positions in `[0, NROWS)`. Tail entries that
    describe positions `≥ NROWS` — for example, residue from
    preallocation or from a prior truncation — MAY be present and
-   MUST be ignored by consumers.
+   MUST be ignored by consumers. A search-index dataset whose validity
+   check fails is exempt from this requirement; consumers treat it as
+   absent.
 10. Every list column group MUST satisfy the structural rules of
     {ref}`hep001-list-columns` at every level: `CLASS` and `KIND`
     attributes present; `OFFSETS[0] = 0` and monotonically
@@ -1788,11 +1962,16 @@ A conformant table group satisfies all of the following at all times:
     `STRING_VALUES` group.
 11. No variable-length datatype occurs anywhere below a list column
     group ({numref}`§%s <list-no-vlen>`).
+12. When a table group contains one or more search-index datasets, the
+    table group MUST carry a scalar `uint64` `GENERATION` attribute, and
+    every search-index dataset MUST carry scalar `uint64`
+    `SOURCE_GENERATION` and `SOURCE_NROWS` attributes
+    ({numref}`§%s <validity-tokens>`).
 
 A producer that mutates a table (appends rows, truncates, rewrites a
-column, etc.) MUST follow {numref}`§%s <write-workflow>` — either
-updating the affected search indexes consistently or deleting them
-before committing the mutation through `NROWS`.
+column, etc.) MUST follow {numref}`§%s <write-workflow>` — for each
+affected search index, either updating it consistently, deleting it, or
+leaving it to be disabled by the validity check.
 
 (hep001-reserved-names)=
 ## Reserved names
@@ -1916,6 +2095,10 @@ members carry reserved names.
   the column datasets that serve as row labels for the table, in hierarchical
   order from outermost to innermost level. See {ref}`hep001-indexes`.
 
+`GENERATION`
+: Scalar `uint64`. State identifier of the table's column data, used by
+  the index validity check. See {numref}`§%s <validity-tokens>`.
+
 #### Column dataset attribute names
 
 `SEARCH_INDEX_LIST`
@@ -1945,6 +2128,11 @@ members carry reserved names.
 : Object reference, on a `BITMAP` search-index dataset, to its accompanying
   values dataset. Shares its token with the `VALUES` member name of list
   column groups above.
+
+`SOURCE_GENERATION`, `SOURCE_NROWS`
+: Scalar `uint64` validity tokens carried by every search-index dataset,
+  recording the table state the index content was built against. See
+  {numref}`§%s <validity-tokens>`.
 
 #### `KIND` attribute values
 
@@ -2070,6 +2258,10 @@ UTF-8 decoding of `CHARS[VALUES/OFFSETS[j] : VALUES/OFFSETS[j+1]]`.
 Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`:
 
 ```
+/my_table
+  GENERATION        = g                (uint64; index validity token)
+  …
+
 /my_table/ts
   SEARCH_INDEX_LIST = [ref(SEARCH_INDEXES/ts__chunk_minmax)]
   …
@@ -2078,7 +2270,9 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
 /my_table/SEARCH_INDEXES/ts__chunk_minmax      (Dataset,
     compound {min: int64, max: int64, nan_count: uint64,
               fill_count: uint64, n: uint64}, shape (n_chunks,))
-  KIND          = "CHUNK_MINMAX"
+  KIND              = "CHUNK_MINMAX"
+  SOURCE_GENERATION = g                (uint64; matches GENERATION)
+  SOURCE_NROWS      = N                (uint64; matches NROWS)
 ```
 
 ### A complete layout
@@ -2146,17 +2340,19 @@ explicit import/export step. HEP001 reserves the Anndata-derived attribute
 names ({numref}`§%s <hep001-shared-names>`) so producers may write them when
 targeting such a converter, but assigns them no HEP001 meaning.
 
+(hep001-security)=
 ## Security considerations
 
-Search indexes are unsigned, untrusted derivative data. A consumer that
-trusts a table's column data MUST NOT, by default, trust the correctness
-of a search index found in the same file: a tampered `CHUNK_MINMAX` can
-cause the consumer to skip chunks that do in fact satisfy a predicate.
-Consumers SHOULD offer a mode that verifies a search index against the
-column it covers, or that ignores search indexes entirely. Producers
-SHOULD document the provenance of search indexes in the table group's
-`description` or in each search-index dataset's `description` attribute
-when that matters to their users.
+Search indexes are unsigned, untrusted derivative data. A consumer that trusts a
+table's column data MUST NOT, by default, trust the correctness of a search
+index found in the same file: a tampered `CHUNK_MINMAX` can cause the consumer
+to skip chunks that do in fact satisfy a predicate. The validity tokens of
+{numref}`§%s <validity-tokens>` detect accidental staleness only and add nothing
+against tampering — an adversarial writer can trivially forge matching tokens.
+Consumers SHOULD offer a mode that verifies a search index against the column it
+covers, or that ignores search indexes entirely. Producers SHOULD document the
+provenance of search indexes in the table group's `description` or in each
+search-index dataset's `description` attribute when that matters to their users.
 
 
 ## References
