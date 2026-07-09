@@ -1,7 +1,7 @@
 ---
 label: HEP001
 description: A column-oriented storage layout for tabular data in HDF5, with first-class support for per-column datatypes, chunking, compression, row indexes, and query-accelerating search indexes.
-date: 2026-07-06
+date: 2026-07-09
 tags:
   - draft
 keywords:
@@ -168,6 +168,10 @@ HEP001 *does not* specify:
 * a query language or execution engine,
 * semantic conventions for domain-specific column units (outside the
   `units` / `units_vocabulary` attribute pair, which is descriptive only),
+* a table-discovery mechanism — locating every table group in a file
+  requires a hierarchy traversal that inspects the `CLASS` attribute of
+  each group if present, which files with very many groups may find costly; a
+  future HEP MAY define an optional root-level manifest,
 * how tables are committed, versioned, or synchronized — those are the
   province of the storage layer and, perhaps, future HEPs.
 
@@ -283,10 +287,20 @@ flowchart TD
     c1(["ts<br>(1-D column dataset)"])
     c2(["energy<br>(1-D column dataset)"])
     c3(["label<br>(1-D column dataset,<br/>categorical)"])
+    c4[["readings<br/>(list column group)<br/>CLASS='LIST_COLUMN',<br/>KIND='OFFSETS'"]]
 
     TG -.->|"INDEX_COLUMNS"| c0
 
-    c0 ~~~ c1 ~~~ c2 ~~~ c3
+    c0 ~~~ c1 ~~~ c2 ~~~ c3 ~~~ c4
+  end
+
+  subgraph List_Column [List Column Members]
+    direction TB
+    lo>"OFFSETS<br/>(1-D uint64, N+1)"]
+    lm>"MASK<br/>(1-D bool enum, N)"]
+    lv>"VALUES<br/>(1-D float32, M)"]
+
+    lo ~~~ lm
   end
 
   subgraph Categories [Categories]
@@ -313,8 +327,13 @@ flowchart TD
   TG --> c1
   TG --> c2
   TG --> c3
+  TG --> c4
   TG -->|"subgroup"| CG
   TG -->|"subgroup"| SI
+
+  c4 --> lo
+  c4 --> lm
+  c4 --> lv
 
   CG --> cc
 
@@ -341,15 +360,19 @@ flowchart TD
   classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
   classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
   classDef siValues   fill:#E8F3E0,stroke:#A8C088,stroke-width:1px,color:#000
+  classDef listGroup  fill:#DDEBDD,stroke:#7CB78A,stroke-width:2px,color:#000
   style Table_Group fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
   style Categories fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
   style Search_Indexes fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
+  style List_Column fill:transparent,stroke:#999,stroke-width:2px,stroke-dasharray: 5 5
 
   class TG tableGroup
   class SI siGroup
   class CG catGroup
   class c0 indexCol
   class c1,c2,c3 dataCol
+  class c4 listGroup
+  class lo,lm,lv dataCol
   class cc catData
   class mm,sr,bm,bf siData
   class bv siValues
@@ -1046,8 +1069,7 @@ For the purposes of {numref}`§%s <hep001-search-indexes>`:
   producers SHOULD prefer `BITMAP` for boolean columns.
 * **`CHUNK_BLOOM`**: the canonical byte representation of a boolean
   value is a single byte, `0x00` for `FALSE` and `0x01` for `TRUE`
-  ({numref}`§%s <bloom>`). Boolean columns are the one enumeration
-  datatype permitted to carry a `CHUNK_BLOOM` index.
+  ({numref}`§%s <bloom>`).
 * **`BITMAP`**: permitted; the accompanying values dataset holds at most
   two entries.
 
@@ -1711,6 +1733,17 @@ query value identically before testing the filter.
   Producers MUST normalize negative zero to positive zero before hashing.
 * **Boolean values** (boolean columns, {numref}`§%s <hep001-booleans>`):
   a single byte, `0x00` for `FALSE` or `0x01` for `TRUE`.
+* **Enumeration datatypes** other than boolean columns (covered above):
+  the value's underlying integer code in the column's storage width,
+  packed **little-endian**, following the signed or unsigned integer rule
+  above according to the base type. Codes are canonicalized against the
+  column's own enumeration definition — the same definition a consumer
+  uses to resolve a queried member name to a code — so differing code
+  assignments for the same member names across files are harmless. An
+  integer code that serves as the column's fill value (for example, a
+  `MISSING` member per {numref}`§%s <fill-vals>`) denotes a missing
+  value: it is excluded from Bloom-filter membership per the general
+  missing-value convention, and consumers MUST NOT query for it.
 * **Fixed- and variable-length strings:** the string's **UTF-8** byte sequence,
   with **no byte-order mark** and **no Unicode normalization** (no NFC, NFD,
   NFKC, or NFKD conversion is applied). For HDF5 fixed-length strings, the
@@ -1725,8 +1758,7 @@ query value identically before testing the filter.
 * **HDF5 object and region references:** out of scope for this revision.
   Producers MUST NOT build a `CHUNK_BLOOM` index over a reference-typed
   column.
-* **Compound, array, and variable-length-array datatypes, and enumerations other
-  than the boolean datatype ({numref}`§%s <hep001-boolean-attributes>`):** out
+* **Compound, array, and variable-length-array datatypes:** out
   of scope for this revision. Producers MUST NOT build a `CHUNK_BLOOM` index
   over such columns. A future HEP MAY register canonical encodings for these
   cases.
@@ -2460,16 +2492,29 @@ Extending {numref}`§%s <min-example-table>` with a `CHUNK_MINMAX` index on `ts`
 
 ### A complete layout
 
+The diagram below assembles the pieces of the preceding examples into
+one table group: four column datasets (one designated as the row
+index), a categorical column with its categories dataset, a list
+column with its member datasets, and four search indexes. The
+`GENERATION` attribute is present because the table carries search
+indexes; the per-index `SOURCE_GENERATION` and `SOURCE_NROWS` validity
+tokens ({numref}`§%s <validity-tokens>`) are omitted from the diagram
+for brevity.
+
 ```{mermaid}
 graph TD
-  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>NROWS=N<br/>INDEX_COLUMNS=[ref(row_id)]"]]
+  TG[["/my_table<br/>CLASS=COLUMN_TABLE<br/>VERSION=1.0<br/>NROWS=N<br/>GENERATION=g<br/>INDEX_COLUMNS=[ref(row_id)]"]]
   TG --> ri(["row_id (uint64, row index)"])
   TG --> ts(["ts (int64)"])
   TG --> en(["energy (float32)"])
   TG --> lb(["label (int8, categorical)"])
+  TG --> rd[["readings<br/>CLASS=LIST_COLUMN<br/>KIND=OFFSETS"]]
   TG --> CG[["CATEGORIES"]]
   TG --> SI[["SEARCH_INDEXES"]]
-  CG --> lc>"label__CATEGORIES (vlen UTF-8)"]
+  rd --> rdo>"OFFSETS (uint64)"]
+  rd --> rdm>"MASK (bool enum)"]
+  rd --> rdv>"VALUES (float32)"]
+  CG --> lc>"label__CATEGORIES (fixed UTF-8)"]
   SI --> mm>"ts__chunk_minmax<br/>KIND=CHUNK_MINMAX"]
   SI --> sr>"energy__sorted_rows<br/>KIND=SORTED_ROWS"]
   SI --> bm>"label__bitmap<br/>KIND=BITMAP"]
@@ -2490,12 +2535,15 @@ graph TD
   classDef catData    fill:#FAE0D4,stroke:#D09F90,stroke-width:1px,color:#000
   classDef siData     fill:#D7F0D8,stroke:#7CB78A,stroke-width:1px,color:#000
   classDef siValues   fill:#E8F3E0,stroke:#A8C088,stroke-width:1px,color:#000
+  classDef listGroup  fill:#DDEBDD,stroke:#7CB78A,stroke-width:2px,color:#000
 
   class TG tableGroup
   class SI siGroup
   class CG catGroup
   class ri indexCol
   class ts,en,lb dataCol
+  class rd listGroup
+  class rdo,rdm,rdv dataCol
   class lc catData
   class mm,sr,bm,bf siData
   class bv siValues
