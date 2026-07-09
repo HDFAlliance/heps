@@ -186,6 +186,16 @@ the section that applies to it. A producer is HEP001-conformant when every table
 group it writes is conformant; a consumer is conformant when it can read any
 conformant table group without data loss.
 
+### Datatype byte order
+
+Except where this specification pins an exact datatype — the boolean datatype's
+`H5T_STD_I8LE` base ({numref}`§%s <hep001-boolean-attributes>`) — integer and
+floating-point attributes and datasets MAY be stored in any byte order. HDF5
+datatypes are self-describing, and the library converts on read. Datatype names
+such as `uint64` in this document therefore constrain width and signedness, not
+byte order. The canonical byte representations used for Bloom-filter hashing
+({numref}`§%s <bloom>`) are defined independently of storage order.
+
 
 ## Terminology
 
@@ -423,6 +433,17 @@ presence of a `CLASS` attribute whose string value equals `COLUMN_TABLE`. A
 producer MUST NOT write `CLASS="COLUMN_TABLE"` attribute on any group that does
 not satisfy the rest of this specification.
 
+The identification is strict-write, lenient-read. Producers MUST write
+the exact datatype above, but consumers SHOULD accept a `CLASS`
+attribute whose *logical string value* equals `COLUMN_TABLE` regardless
+of storage details: fixed-length strings of a larger size
+(null-terminated or null-padded per standard HDF5 conventions),
+variable-length strings, and either declared character set. Experience
+with earlier HDF5 conventions shows that third-party writers routinely
+vary these details. The same lenient-read rule applies to every HEP001
+attribute whose value is a reserved ASCII token — `CLASS` on any group,
+`KIND`, and `VERSION`.
+
 ```{note}
 HDF5 fixed-length strings are byte-length-bounded. Producers MUST size
 each fixed-length UTF-8 attribute with enough bytes to hold the longest
@@ -520,7 +541,10 @@ The table group MAY carry the following attributes.
   supplies the primary row labels for this table (for example, `"row_id"`).
   The name is borrowed from Anndata's `_index`. When both `INDEX_COLUMNS` and
   `_index` are present, `_index` MUST equal the dataset name of the
-  column referenced by `INDEX_COLUMNS[0]`.
+  column referenced by `INDEX_COLUMNS[0]`. `INDEX_COLUMNS` is the
+  authoritative row-label declaration; `_index` is a derived convenience
+  written for Anndata affinity, and consumers MUST NOT prefer it over
+  `INDEX_COLUMNS` when both are present.
 
 `encoding-type` / `encoding-version`
 : Scalar fixed-length UTF-8 strings, both optional. These names are borrowed
@@ -726,8 +750,10 @@ dataset (each a scalar of the column's element datatype). If present, the chosen
 fill value MUST lie strictly outside `[valid_min, valid_max]`.
 
 (canonical-missing-test)=
-Consumers MUST retrieve the fill value (`H5Dget_fill_value`) and identify
-missing rows with the **canonical missing-value test**:
+Consumers MUST retrieve the fill value — via `H5Dget_create_plist`
+followed by `H5Pget_fill_value`, using `H5Pfill_value_defined` to
+confirm the `H5D_FILL_VALUE_USER_DEFINED` state — and identify
+missing rows with the canonical missing-value test:
 
 ```
 missing(value, fill_value) = isnan(fill_value) ? isnan(value) : value == fill_value
@@ -1348,6 +1374,13 @@ Every search-index dataset MUST also carry the two validity-token attributes
 consumer MUST evaluate the validity check defined there before using any search
 index.
 
+The shapes of search-index datasets grow with the table: `CHUNK_MINMAX`
+and `CHUNK_BLOOM` track the source column's data-bearing chunk count,
+`SORTED_ROWS` and `BITMAP` track `NROWS`. Producers SHOULD therefore
+create search-index datasets chunked, with the growing dimension
+unlimited, so appends can extend them in place; a producer MUST NOT instead
+delete and recreate an index dataset on each update.
+
 A search-index dataset MAY also carry a `description` attribute (scalar
 fixed-length UTF-8 string), per the descriptive-annotation convention
 used elsewhere in this spec (see {ref}`hep001-reserved-names`, rule 4).
@@ -1412,7 +1445,10 @@ excluded. For integer and other orderable types, only elements equal to
 the column's fill value are excluded. When the chunk has no non-missing,
 orderable elements (`fill_count + nan_count == n` for floating-point
 columns, or `fill_count == n` for other orderable types), `min` and `max`
-MUST be set to the column's fill value.
+MUST be set to the column's fill value. In that case `min` and `max` are
+placeholders with no semantic meaning: consumers MUST recognize such
+chunks from the `fill_count`, `nan_count`, and `n` fields and MUST NOT
+use the placeholder values as bounds in pruning decisions.
 
 **Applicability:** Each `CHUNK_MINMAX` search-index dataset applies to
 exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
@@ -1539,7 +1575,10 @@ lying in the preallocated tail `[NROWS, extent)` are not indexed.
 significant bit) of byte `r / 8` of row `k` is set if the column's value
 at row `r` equals the `k`-th indexed value. Because the storage element
 is `uint8`, HDF5 performs no byte swapping on read or write — the bytes
-on disk are exactly the bytes the producer wrote.
+on disk are exactly the bytes the producer wrote. When `NROWS` is not a
+multiple of 8, the bits at positions `≥ NROWS` in each row's final byte
+are padding: producers MUST write them as `0`, and consumers MUST
+ignore them regardless of their value.
 
 **Accompanying values dataset:** A sibling 1-D dataset, under `SEARCH_INDEXES`,
 holds the `K` indexed values in the same datatype as the source column. Its name
@@ -1560,6 +1599,14 @@ NOT carry a `KIND` attribute (see {numref}`§%s <hep001-search-indexes>`).
   dataset under that order. When `false` or absent, the order of the
   values dataset is arbitrary (typically insertion order) and consumers
   MUST NOT infer any semantic ordering from it.
+* `exhaustive` — scalar boolean ({numref}`§%s <hep001-boolean-attributes>`).
+  When `true`, the values dataset enumerates every distinct non-missing
+  value that occurs in rows `[0, NROWS)` of the source column, so a
+  query value absent from the values dataset provably matches zero
+  rows. When `false` or absent, the enumeration MAY be partial — for
+  example, only the most frequent values — and consumers MUST treat a
+  query value absent from the values dataset as unindexed (falling back
+  to a scan), not as proof of absence.
 
 **Applicability:** Each `BITMAP` search-index dataset applies to
 exactly one column, identified by the column whose `SEARCH_INDEX_LIST`
@@ -1892,6 +1939,17 @@ fully readable. No cleanup is required for readers to use the
 file correctly. A subsequent producer that wants to retry the append
 SHOULD either overwrite the unused tail or extend further.
 
+As with every crash-consistency statement in this document, the above
+describes the HEP001-level state of a file that survives the crash
+structurally intact ({numref}`§%s <validity-tokens>`). HDF5 does not
+journal its own metadata: a crash during any metadata write — a dataset
+extension, an attribute update, a B-tree modification — MAY corrupt the
+HDF5 file itself, beyond what this specification's ordering rules can
+protect. Producers that require durability against file-level
+corruption MUST arrange it outside HDF5 (for example, journaled or
+copy-on-write storage, filesystem snapshots, or write-ahead copies of
+the file).
+
 HDF5 itself does not guarantee atomic ordering between the data writes
 of step 3, the index writes of step 4, and the attribute updates of
 steps 5–6 unless the producer issues explicit `H5Fflush` calls between
@@ -1907,9 +1965,12 @@ feature cannot be used to publish an append this way: an SWMR writer may
 only append raw data to existing datasets along an unlimited dimension and
 MUST NOT create or modify attributes — or any other metadata — while SWMR
 writing is active. Producers that need live concurrent readers therefore
-cannot rely on classic SWMR for the `NROWS` commit. The newer VFD SWMR
-feature, which does permit attribute creation and modification, is required
-for that use case.
+cannot rely on classic SWMR for the `NROWS` commit. The prototype VFD SWMR
+feature does permit attribute creation and modification while writing,
+but as of this revision it has not shipped in any stable HDF5 release —
+it exists on a development feature branch only. Until it ships, live
+concurrent reading of a table under active append requires coordination
+outside HDF5.
 ```
 
 ### Preallocation
