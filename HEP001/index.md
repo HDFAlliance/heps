@@ -848,12 +848,49 @@ columns), producers MUST also declare that range via `valid_min` and
 natural numeric range (strings, opaque), the alternative fill value
 alone constitutes the override; no additional attribute is required.
 
+#### Full-domain columns
+
+The sentinel scheme has a limit: a column whose logical domain spans every
+representable value of its datatype — a `uint8` column that legitimately uses
+all 256 values, or an `int64` column of arbitrary 64-bit identifiers or hashes —
+has no out-of-domain value left to serve as a fill sentinel, and therefore
+cannot represent missing rows under this revision. A producer of such a column
+MUST either use a wider datatype whose additional range provides a sentinel, or
+declare no missing-row semantics for the column (every row position in `[0,
+NROWS)` holds a value). The reserved mask mechanism below is the intended future
+remedy.
+
+(reserved-mask)=
+#### Reserved: the `MASK` column attribute
+
+A future revision of this HEP is expected to define an explicit
+validity-mask mechanism for column datasets, covering the full-domain
+case above. So that tools do not invent incompatible encodings in the
+interim, this revision reserves the attribute name `MASK` on column
+datasets for that purpose. The intended shape of the mechanism, stated
+here for orientation and not as normative specification: the attribute
+holds an HDF5 object reference to a per-row validity dataset of the
+HEP001 boolean datatype ({numref}`§%s <hep001-boolean-attributes>`)
+with first-dimension extent `≥ NROWS`, in which `FALSE` marks the row
+missing — element-for-element the semantics that the `MASK` member
+dataset already has inside list columns
+({numref}`§%s <list-column-members>`) — and, when present, it takes
+precedence over the canonical missing-value test for the column that
+carries it.
+
+Producers conforming to this revision MUST NOT write a `MASK` attribute
+on a column dataset. A consumer that encounters one SHOULD treat the
+column as governed by a later revision of this HEP: it SHOULD NOT
+assume that the fill-value test alone identifies the column's missing
+rows.
+
 ```{note}
-This is a conscious divergence from Anndata's nullable-integer and
-nullable-boolean encodings, which add a companion boolean mask. For
-column datasets, HEP001 relies on fill values alone. List columns are
-the one exception: a list column's optional `MASK` member dataset marks
-null lists ({numref}`§%s <list-column-members>`), because a `uint64`
+Anndata's nullable-integer and nullable-boolean encodings pair every
+value array with a companion boolean mask. For column datasets, this
+revision relies on fill values alone and defers the mask mechanism to
+the reservation above. List columns are the one place a mask is already
+normative: a list column's optional `MASK` member dataset marks null
+lists ({numref}`§%s <list-column-members>`), because a `uint64`
 offsets encoding has no spare value domain for a fill sentinel that
 would distinguish a null list from an empty one.
 ```
@@ -2255,6 +2292,11 @@ members carry reserved names.
 : Inclusive lower and upper bounds of the column's logical value range.
   Each is a scalar attribute whose datatype matches the column's element
   datatype. See {numref}`§%s <fill-vals>`.
+
+`MASK` *(reserved for a future revision)*
+: Reserved name for a per-row validity-mask mechanism on column
+  datasets; producers conforming to this revision MUST NOT write it.
+  See {numref}`§%s <reserved-mask>`.
 
 #### Search-index and categories dataset attribute names
 
